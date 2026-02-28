@@ -2,10 +2,22 @@
 
 #include "tomlc17.h"
 
+#include <stdio.h>
+
+static char loaded_window_title[512] = {0};
+
 static result read_window_title(toml_datum_t window_table, WindowConfig *config) {
     toml_datum_t value = toml_get(window_table, "title");
-    if (value.type == TOML_STRING && value.u.s)
-        config->title = (char *)value.u.s;
+    if (value.type == TOML_STRING && value.u.s && value.u.s[0] != '\0') {
+        const int written = snprintf(loaded_window_title, sizeof(loaded_window_title), "%s", value.u.s);
+        if (written < 0)
+            return Err;
+
+        if (written >= (int)sizeof(loaded_window_title))
+            log_warn("Window.title exceeded %lu chars and was truncated", (usize)(sizeof(loaded_window_title) - 1));
+
+        config->title = loaded_window_title;
+    }
 
     return Ok;
 }

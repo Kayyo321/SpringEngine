@@ -4,21 +4,23 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <dirent.h>
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
 
 enum {
-    LogMaxIndex = 10,
+    LogMaxIndex = 9,
+    LogDeleteIndex = 10,
 };
 
 static const char *LogDirectory = "logs";
-static const char *LogIndexFile = "logs/.next";
 
 enum {
     LogFlagNone = 0,
@@ -64,37 +66,184 @@ static result ensure_log_directory(void) {
     return Ok;
 }
 
-static int read_next_log_index(void) {
-    FILE *index_file = fopen(LogIndexFile, "r");
-    if (!index_file)
-        return 0;
+static void format_timestamp(time_t value, char *buffer, usize buffer_size) {
+    struct tm tm_info = {0};
+    if (!localtime_r(&value, &tm_info)) {
+        if (snprintf(buffer, buffer_size, "unknown") >= (int)buffer_size)
+            buffer[0] = '\0';
+        return;
+    }
 
-    int next_index = 0;
-    if (fscanf(index_file, "%d", &next_index) != 1)
-        next_index = 0;
-
-    fclose(index_file);
-
-    if (next_index < 0 || next_index > LogMaxIndex)
-        next_index = 0;
-
-    return next_index;
+    strftime(buffer, buffer_size, "%Y-%m-%d_%H-%M-%S", &tm_info);
 }
 
-static result write_next_log_index(int next_index) {
-    FILE *index_file = fopen(LogIndexFile, "w");
-    if (!index_file) {
-        fprintf(stderr, "Failed to write log index file '%s': %s\n", LogIndexFile, strerror(errno));
+static result build_log_path(int index, const char *timestamp, char *out_path, usize out_size) {
+    if (!out_path || out_size == 0)
         return Err;
+
+    if (index == 0) {
+        if (snprintf(out_path, out_size, "%s/log0-last.log", LogDirectory) >= (int)out_size)
+            return Err;
+        return Ok;
     }
 
-    if (fprintf(index_file, "%d\n", next_index) < 0) {
-        fclose(index_file);
-        fprintf(stderr, "Failed to update log index file '%s'\n", LogIndexFile);
+    if (!timestamp || timestamp[0] == '\0')
         return Err;
+
+    if (snprintf(out_path, out_size, "%s/log%d-%s.log", LogDirectory, index, timestamp) >= (int)out_size)
+        return Err;
+
+    return Ok;
+}
+
+static boolean try_extract_timestamp_from_name(const char *file_name, int index, char *out_timestamp, usize out_size) {
+    if (!file_name || !out_timestamp || out_size == 0 || index <= 0)
+        return False;
+
+    char prefix[32] = {0};
+    if (snprintf(prefix, sizeof(prefix), "log%d-", index) >= (int)sizeof(prefix))
+        return False;
+
+    const usize prefix_len = strlen(prefix);
+    const usize name_len = strlen(file_name);
+    if (name_len <= prefix_len + 4)
+        return False;
+
+    if (strncmp(file_name, prefix, prefix_len) != 0)
+        return False;
+
+    if (strcmp(file_name + name_len - 4, ".log") != 0)
+        return False;
+
+    const usize ts_len = name_len - prefix_len - 4;
+    if (ts_len + 1 > out_size)
+        return False;
+
+    memcpy(out_timestamp, file_name + prefix_len, ts_len);
+    out_timestamp[ts_len] = '\0';
+    return True;
+}
+
+static boolean find_log_file_for_index(int index, char *out_path, usize out_size, char *out_name, usize out_name_size) {
+    if (!out_path || out_size == 0)
+        return False;
+
+    DIR *directory = opendir(LogDirectory);
+    if (!directory)
+        return False;
+
+    char best_match_name[PATH_MAX] = {0};
+    char exact_name[32] = {0};
+    if (index == 0)
+        snprintf(exact_name, sizeof(exact_name), "log0-last.log");
+
+    struct dirent *entry = Null;
+    while ((entry = readdir(directory)) != Null) {
+        if (entry->d_name[0] == '.')
+            continue;
+
+        if (index == 0) {
+            if (strcmp(entry->d_name, "log0") == 0 || strcmp(entry->d_name, "log0.log") == 0) {
+                snprintf(best_match_name, sizeof(best_match_name), "%s", entry->d_name);
+                continue;
+            }
+
+            if (strcmp(entry->d_name, exact_name) == 0) {
+                snprintf(best_match_name, sizeof(best_match_name), "%s", entry->d_name);
+                break;
+            }
+
+            if (strncmp(entry->d_name, "log0-", 5) == 0) {
+                snprintf(best_match_name, sizeof(best_match_name), "%s", entry->d_name);
+                continue;
+            }
+
+            continue;
+        }
+
+        char prefix[32] = {0};
+        if (snprintf(prefix, sizeof(prefix), "log%d", index) >= (int)sizeof(prefix))
+            continue;
+
+        const usize prefix_len = strlen(prefix);
+        if (strncmp(entry->d_name, prefix, prefix_len) != 0)
+            continue;
+
+        const char next_char = entry->d_name[prefix_len];
+        if (next_char != '\0' && next_char != '-' && next_char != '.')
+            continue;
+
+        snprintf(best_match_name, sizeof(best_match_name), "%s", entry->d_name);
+        if (next_char == '-')
+            break;
     }
 
-    fclose(index_file);
+    boolean found = False;
+    if (best_match_name[0] != '\0') {
+        if (snprintf(out_path, out_size, "%s/%s", LogDirectory, best_match_name) < (int)out_size) {
+            if (out_name && out_name_size > 0)
+                snprintf(out_name, out_name_size, "%s", best_match_name);
+            found = True;
+        }
+    }
+
+    closedir(directory);
+    return found;
+}
+
+static result rotate_logs(void) {
+    for (int index = LogMaxIndex; index >= 0; --index) {
+        char source_path[PATH_MAX] = {0};
+        char source_name[PATH_MAX] = {0};
+        if (!find_log_file_for_index(index, source_path, sizeof(source_path), source_name, sizeof(source_name)))
+            continue;
+
+        if (index + 1 >= LogDeleteIndex) {
+            if (remove(source_path) != 0 && errno != ENOENT) {
+                fprintf(stderr, "Failed to remove old log '%s': %s\n", source_path, strerror(errno));
+                return Err;
+            }
+            continue;
+        }
+
+        char timestamp[32] = {0};
+        if (index == 0) {
+            struct stat source_stat = {0};
+            if (stat(source_path, &source_stat) != 0) {
+                fprintf(stderr, "Failed to stat log '%s': %s\n", source_path, strerror(errno));
+                return Err;
+            }
+
+            format_timestamp(source_stat.st_mtime, timestamp, sizeof(timestamp));
+        } else {
+            if (!try_extract_timestamp_from_name(source_name, index, timestamp, sizeof(timestamp))) {
+                struct stat source_stat = {0};
+                if (stat(source_path, &source_stat) != 0) {
+                    fprintf(stderr, "Failed to stat log '%s': %s\n", source_path, strerror(errno));
+                    return Err;
+                }
+
+                format_timestamp(source_stat.st_mtime, timestamp, sizeof(timestamp));
+            }
+        }
+
+        char destination_path[PATH_MAX] = {0};
+        if (build_log_path(index + 1, timestamp, destination_path, sizeof(destination_path)) != Ok) {
+            fprintf(stderr, "Failed to build rotated log path for index %d\n", index + 1);
+            return Err;
+        }
+
+        if (remove(destination_path) != 0 && errno != ENOENT) {
+            fprintf(stderr, "Failed to remove previous rotated log '%s': %s\n", destination_path, strerror(errno));
+            return Err;
+        }
+
+        if (rename(source_path, destination_path) != 0) {
+            fprintf(stderr, "Failed to rotate log '%s' -> '%s': %s\n", source_path, destination_path, strerror(errno));
+            return Err;
+        }
+    }
+
     return Ok;
 }
 
@@ -102,10 +251,10 @@ static result prepare_log_path(void) {
     if (ensure_log_directory() != Ok)
         return Err;
 
-    const int current_index = read_next_log_index();
-    const int next_index = (current_index + 1) % (LogMaxIndex + 1);
+    if (rotate_logs() != Ok)
+        return Err;
 
-    if (snprintf(current_log_path, sizeof(current_log_path), "%s/log%d", LogDirectory, current_index) >= (int)sizeof(current_log_path)) {
+    if (build_log_path(0, Null, current_log_path, sizeof(current_log_path)) != Ok) {
         fprintf(stderr, "Log path is too long\n");
         return Err;
     }
@@ -115,7 +264,7 @@ static result prepare_log_path(void) {
         return Err;
     }
 
-    return write_next_log_index(next_index);
+    return Ok;
 }
 
 static const char *log_path(void) {
