@@ -68,10 +68,15 @@ void run_allocator_tests(void) {
         ++failed;
     }
 
+    const usize warn_before_expected_leak = get_warn_count();
+    const usize err_before_expected_leak = get_error_count();
+
     if (scan_and_deallocate() != Err) {
         log_err("scan_and_deallocate should return Err when leaks are present");
         ++failed;
     }
+
+    restore_diagnostic_counts(warn_before_expected_leak, err_before_expected_leak);
 
     if (scan_and_deallocate() != Ok) {
         log_err("scan_and_deallocate should return Ok after leaked heaps are reclaimed");

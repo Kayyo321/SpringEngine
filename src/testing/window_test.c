@@ -158,10 +158,16 @@ void run_window_tests(void) {
     windowman_set_test_hooks(&hooks);
 
     config.resizable = False;
+
+    const usize warn_before_expected_window_err = get_warn_count();
+    const usize err_before_expected_window_err = get_error_count();
+
     if (open_window(config) != Err) {
         log_err("open_window should return Err when IsWindowReady is false");
         ++failed;
     }
+
+    restore_diagnostic_counts(warn_before_expected_window_err, err_before_expected_window_err);
 
     if (state.set_state_called != 1 || state.last_window_state != 0) {
         log_err("open_window should pass 0 flags when window is non-resizable");

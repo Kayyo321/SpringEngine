@@ -56,3 +56,51 @@
 [2026-02-28 13:14:26] Program executed in 3.00 seconds.
 [2026-02-28 13:14:26] Finished with 0 warnings and 0 errors.
 === Log closed at 2026-02-28 13:14:26 ===
+=== Log opened at 2026-02-28 13:30:12 ===
+[2026-02-28 13:30:12] SpringEngine-0.1.0 is starting
+[2026-02-28 13:30:12] Running allocator tests...
+[2026-02-28 13:30:12] Memory leak detected: 25 bytes at 0x1016af4a0
+[2026-02-28 13:30:12] Allocator tests passed.
+[2026-02-28 13:30:12] Running windowman tests...
+(EE) [2026-02-28 13:30:12] Failed to initialize the window.
+[2026-02-28 13:30:12] Windowman tests passed.
+[2026-02-28 13:30:12] All tests completed.
+[2026-02-28 13:30:12] Program executed in 0.00 seconds.
+[2026-02-28 13:30:12] Finished with 1 warnings and 2 errors.
+=== Log closed at 2026-02-28 13:30:12 ===
+=== Log opened at 2026-02-28 13:31:34 ===
+[2026-02-28 13:31:34] SpringEngine-0.1.0 is starting
+[2026-02-28 13:31:34] Running allocator tests...
+[2026-02-28 13:31:34] Memory leak detected: 25 bytes at 0x1014334a0
+[2026-02-28 13:31:34] Allocator tests passed.
+[2026-02-28 13:31:34] Running windowman tests...
+(EE) [2026-02-28 13:31:34] Failed to initialize the window.
+[2026-02-28 13:31:34] Windowman tests passed.
+[2026-02-28 13:31:34] All tests completed.
+[2026-02-28 13:31:34] Program executed in 0.00 seconds.
+[2026-02-28 13:31:34] Finished with 1 warnings and 2 errors.
+=== Log closed at 2026-02-28 13:31:34 ===
+=== Log opened at 2026-02-28 13:32:35 ===
+[2026-02-28 13:32:35] SpringEngine-0.1.0 is starting
+[2026-02-28 13:32:35] Running allocator tests...
+[2026-02-28 13:32:35] Memory leak detected: 25 bytes at 0x104be3330
+[2026-02-28 13:32:35] Allocator tests passed.
+[2026-02-28 13:32:35] Running windowman tests...
+(EE) [2026-02-28 13:32:35] Failed to initialize the window.
+[2026-02-28 13:32:35] Windowman tests passed.
+[2026-02-28 13:32:35] All tests completed.
+[2026-02-28 13:32:35] Program executed in 0.00 seconds.
+[2026-02-28 13:32:35] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 13:32:35 ===
+=== Log opened at 2026-02-28 13:33:43 ===
+[2026-02-28 13:33:43] SpringEngine-0.1.0 is starting
+[2026-02-28 13:33:43] Running allocator tests...
+[2026-02-28 13:33:43] Memory leak detected: 25 bytes at 0x10304b330
+[2026-02-28 13:33:43] Allocator tests passed.
+[2026-02-28 13:33:43] Running windowman tests...
+(EE) [2026-02-28 13:33:43] Failed to initialize the window.
+[2026-02-28 13:33:43] Windowman tests passed.
+[2026-02-28 13:33:43] All tests completed.
+[2026-02-28 13:33:43] Program executed in 0.00 seconds.
+[2026-02-28 13:33:43] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 13:33:43 ===
