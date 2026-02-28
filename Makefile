@@ -38,6 +38,12 @@ LIB_FILES := $(shell \
 	}' | sort)
 LDLIBS += $(LIB_FILES)
 
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+LDFLAGS += -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreAudio -framework AudioToolbox -framework CoreFoundation -framework AppKit
+LDLIBS += -lm
+endif
+
 .PHONY: all clean fclean re
 
 all: $(TARGET)

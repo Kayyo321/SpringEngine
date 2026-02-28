@@ -45,7 +45,7 @@ void quit(result res) {
     if (log_file)
         close_logger();
 
-    res = scan_and_deallocate();
+    res = scan_and_deallocate() == Ok ? res : Err;
 
     fprintf(stderr, "%s exited with code %d\n", program.title, res);
     exit(res);
