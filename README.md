@@ -15,18 +15,53 @@ You install SpringEngine once on your system (similar to a language runtime), th
 ## Runtime Model
 
 - Runtime binary: `springengine`
-- Game target: loadable module (e.g., `.dylib` on macOS)
-- Contract: stable C ABI between runtime and game module
+- Game target: packaged project (assets + Lua scripts + metadata)
+- Optional extension target: loadable native module (e.g., `.dylib` on macOS)
+- Contract: stable engine API and script API versioning
 - Execution flow:
 	1. User installs SpringEngine.
 	2. User downloads a SpringEngine-compatible game package.
 	3. User runs the game through SpringEngine.
 
+## Unity-Like Direction (Lua-Based)
+
+SpringEngine aims for a Unity-style authoring model, with Lua as the primary scripting language instead of C#.
+
+- **Scenes**: authored as data files that define objects, transforms, and attached components.
+- **Entities + Components**: runtime objects are composed from reusable components.
+- **Script Components**: behavior is defined in Lua scripts attached to entities.
+- **Lifecycle Hooks**: scripts use hooks similar to `Awake`, `Start`, `Update`, `OnDestroy`.
+- **Prefabs**: reusable object templates serialized as data.
+- **Engine Systems**: rendering, physics, input, audio, and resource loading remain native (C).
+
+### Lua Scripting Role
+
+- Lua is the default gameplay language.
+- Runtime embeds Lua and exposes a curated API surface (transform, input, audio, scene queries, logging, spawning/despawning, etc.).
+- Game packages primarily ship Lua scripts and content files.
+- Native modules are optional for performance-critical or platform-specific features.
+
+### API Stability Strategy
+
+- Version the runtime API exposed to Lua.
+- Include required engine API version in each game package manifest.
+- Reject package load when versions are incompatible, with clear diagnostics.
+
+### Suggested Milestones
+
+1. Embed Lua runtime and execute a boot script from a game package.
+2. Implement scene loader (JSON/TOML/YAML) and entity/component instantiation.
+3. Add script component lifecycle (`Awake`, `Start`, `Update`, `OnDestroy`).
+4. Expose core engine API bindings to Lua (input, transform, drawing, audio, time).
+5. Add prefab support and package manifest version checks.
+6. Add optional native extension interface for advanced modules.
+
 ## Long-Term Direction
 
 - Keep engine/runtime and game code as separate deliverables.
-- Version and validate ABI compatibility at launch.
+- Version and validate API compatibility at launch.
 - Provide an SDK surface for game developers to build SpringEngine-compatible games.
+- Prioritize Lua-first gameplay authoring and tooling.
 
 ## C Project Build System
 
