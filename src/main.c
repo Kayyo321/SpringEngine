@@ -4,6 +4,9 @@
 
 #include "common.h"
 #include "program.h"
+#ifdef TESTING
+#include "testing/testing.h"
+#endif // TESTING
 
 static void spring_engine(void) {
     if (open_logger() != Ok)
@@ -16,9 +19,9 @@ static void spring_engine(void) {
 
 #ifdef TESTING
         run_all_tests();
-#endif // TESTING
-
+#else
         run_program();
+#endif // TESTING
 
         const time_t end_time = time(Null);
         const double elapsed = difftime(end_time, start_time);

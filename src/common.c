@@ -271,17 +271,17 @@ result scan_and_deallocate(void) {
     ensure_heap_list_integrity();
 
     HeapList *current = heap_list_head->next;
-    usize leaked_count = 0;
+    usize reclaimed_bytes = 0;
 
     while (current) {
         HeapList *next = current->next;
         if (current->heap.pointer) {
             log_warn("Memory leak detected: %lu bytes at %p", current->heap.size, current->heap.pointer);
+            reclaimed_bytes += current->heap.size;
             deallocate(current->heap);
-            ++leaked_count;
         }
         current = next;
     }
 
-    return (leaked_count > 0) ? Err : Ok;
+    return (reclaimed_bytes > 0) ? Err : Ok;
 }

@@ -1,4 +1,5 @@
 #include "program.h"
+#include "testing/testing.h"
 
 #include "windowman/windowman.h"
 
@@ -7,7 +8,7 @@ void test_update(void) {
 }
 
 void run_program(void) {
-	open_window(DefaultWindowConfig);
+    open_window(DefaultWindowConfig);
 
     do {
         //

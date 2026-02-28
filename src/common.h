@@ -52,6 +52,6 @@ Heap allocate(usize count, usize bytes);
 Heap reallocate(Heap heap, usize new_size);
 void deallocate(Heap heap);
 
-result scan_and_deallocate(void); // returns Err if any heap is not deallocated, otherwise Ok
+result scan_and_deallocate(void); // returns Err if any leaked bytes are reclaimed, otherwise Ok
 
 #endif // COMMON_H

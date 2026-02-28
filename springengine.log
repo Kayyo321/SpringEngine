@@ -174,3 +174,49 @@
 [2026-02-28 13:39:00] Program executed in 5.00 seconds.
 [2026-02-28 13:39:00] Finished with 0 warnings and 0 errors.
 === Log closed at 2026-02-28 13:39:00 ===
+=== Log opened at 2026-02-28 13:48:22 ===
+[2026-02-28 13:48:22] SpringEngine-0.1.0 is starting
+[2026-02-28 13:48:25] Program executed in 3.00 seconds.
+[2026-02-28 13:48:25] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 13:48:25 ===
+=== Log opened at 2026-02-28 13:48:40 ===
+[2026-02-28 13:48:40] SpringEngine-0.1.0 is starting
+[2026-02-28 13:48:40] Running allocator tests...
+[2026-02-28 13:48:40] Memory leak detected: 25 bytes at 0x10112f640
+[2026-02-28 13:48:40] Allocator tests passed.
+[2026-02-28 13:48:40] Running windowman tests...
+(EE) [2026-02-28 13:48:40] Failed to initialize the window.
+[2026-02-28 13:48:40] Windowman tests passed.
+[2026-02-28 13:48:40] All tests completed.
+[2026-02-28 13:48:40] Program executed in 0.00 seconds.
+[2026-02-28 13:48:40] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 13:48:40 ===
+=== Log opened at 2026-02-28 13:49:27 ===
+[2026-02-28 13:49:27] SpringEngine-0.1.0 is starting
+[2026-02-28 13:49:27] Running allocator tests...
+[2026-02-28 13:49:27] Memory leak detected: 25 bytes at 0xb71002dc0
+[2026-02-28 13:49:27] Allocator tests passed.
+[2026-02-28 13:49:27] Running windowman tests...
+(EE) [2026-02-28 13:49:27] Failed to initialize the window.
+[2026-02-28 13:49:27] Windowman tests passed.
+[2026-02-28 13:49:27] All tests completed.
+[2026-02-28 13:49:27] Program executed in 0.00 seconds.
+[2026-02-28 13:49:27] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 13:49:27 ===
+=== Log opened at 2026-02-28 13:49:59 ===
+[2026-02-28 13:49:59] SpringEngine-0.1.0 is starting
+[2026-02-28 13:49:59] Running allocator tests...
+[2026-02-28 13:49:59] Memory leak detected: 25 bytes at 0x104f6b670
+[2026-02-28 13:49:59] Allocator tests passed.
+[2026-02-28 13:49:59] Running windowman tests...
+(EE) [2026-02-28 13:49:59] Failed to initialize the window.
+[2026-02-28 13:49:59] Windowman tests passed.
+[2026-02-28 13:49:59] All tests completed.
+[2026-02-28 13:49:59] Program executed in 0.00 seconds.
+[2026-02-28 13:49:59] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 13:49:59 ===
+=== Log opened at 2026-02-28 13:50:07 ===
+[2026-02-28 13:50:07] SpringEngine-0.1.0 is starting
+[2026-02-28 13:50:16] Program executed in 9.00 seconds.
+[2026-02-28 13:50:16] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 13:50:16 ===
