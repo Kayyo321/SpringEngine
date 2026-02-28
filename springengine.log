@@ -262,3 +262,33 @@
 [2026-02-28 14:41:17] Program executed in 0.00 seconds.
 [2026-02-28 14:41:17] Finished with 0 warnings and 0 errors.
 === Log closed at 2026-02-28 14:41:17 ===
+=== Log opened at 2026-02-28 14:46:41 ===
+[2026-02-28 14:46:41] SpringEngine-0.1.0 is starting
+[2026-02-28 14:46:41] Initialized builtin component 'Transform' on actor 'player'
+[2026-02-28 14:46:41] Initialized builtin component 'MeshRenderer' on actor 'player'
+[2026-02-28 14:46:41] Initialized script component 'scripts/player_controller.lua' on actor 'player'
+[2026-02-28 14:46:41] Initialized builtin component 'Transform' on actor 'main_camera'
+[2026-02-28 14:46:41] Initialized builtin component 'Camera' on actor 'main_camera'
+[2026-02-28 14:46:44] Program executed in 3.00 seconds.
+[2026-02-28 14:46:44] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 14:46:44 ===
+=== Log opened at 2026-02-28 14:53:26 ===
+[2026-02-28 14:53:26] SpringEngine-0.1.0 is starting
+[2026-02-28 14:53:26] Spring-Engine Usage:
+[2026-02-28 14:53:26]   --version | -v
+[2026-02-28 14:53:26]   --run <project_path> | -r <project_path>
+[2026-02-28 14:53:26] Program executed in 0.00 seconds.
+[2026-02-28 14:53:26] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 14:53:26 ===
+=== Log opened at 2026-02-28 14:53:47 ===
+[2026-02-28 14:53:47] SpringEngine-0.1.0 is starting
+[2026-02-28 14:53:47] SpringEngine-0.1.0
+[2026-02-28 14:53:47] Program executed in 0.00 seconds.
+[2026-02-28 14:53:47] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 14:53:47 ===
+=== Log opened at 2026-02-28 14:54:16 ===
+[2026-02-28 14:54:16] SpringEngine-0.1.0 is starting
+[2026-02-28 14:54:16] SpringEngine version is SpringEngine-0.1.0
+[2026-02-28 14:54:16] Program executed in 0.00 seconds.
+[2026-02-28 14:54:16] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 14:54:16 ===

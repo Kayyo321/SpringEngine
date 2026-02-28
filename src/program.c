@@ -5,108 +5,48 @@
 #include "config/project_config.h"
 #include "windowman/windowman.h"
 
-void test_update(void) {
-    DrawText("Running tests...", 10, 10, 20, BLACK);
+#include <string.h>
+
+static void log_usage(void) {
+    log_msg("SpringEngine Usage:");
+    log_msg("  --version | -v");
+    log_msg("  --run <project_path> | -r <project_path>");
 }
 
-static result initialize_component(Actor *actor, ActorComponent *component, void *context) {
-    (void)context;
-
-    log_msg("Initialized %s component '%s' on actor '%s'", component_kind_name(component->descriptor.kind), component->descriptor.name, actor->id);
-    return Ok;
+static void version(void) {
+    log_msg("SpringEngine version is %s", program.title);
 }
 
-static result load_bootstrap_scene(ActorRegistry *registry) {
-    const ActorLoadComponent player_components[] = {
-        {
-            .descriptor = {
-                .name = "Transform",
-                .kind = ComponentBuiltin,
-                .initialize = initialize_component,
-                .context = 0,
-            },
-            .data = 0,
-        },
-        {
-            .descriptor = {
-                .name = "MeshRenderer",
-                .kind = ComponentBuiltin,
-                .initialize = initialize_component,
-                .context = 0,
-            },
-            .data = 0,
-        },
-        {
-            .descriptor = {
-                .name = "scripts/player_controller.lua",
-                .kind = ComponentScript,
-                .initialize = initialize_component,
-                .context = 0,
-            },
-            .data = 0,
-        },
-    };
-
-    const ActorLoadComponent camera_components[] = {
-        {
-            .descriptor = {
-                .name = "Transform",
-                .kind = ComponentBuiltin,
-                .initialize = initialize_component,
-                .context = 0,
-            },
-            .data = 0,
-        },
-        {
-            .descriptor = {
-                .name = "Camera",
-                .kind = ComponentBuiltin,
-                .initialize = initialize_component,
-                .context = 0,
-            },
-            .data = 0,
-        },
-    };
-
-    const ActorLoadSpec scene_specs[] = {
-        {
-            .id = "player",
-            .enabled = True,
-            .components = player_components,
-            .component_count = sizeof(player_components) / sizeof(player_components[0]),
-        },
-        {
-            .id = "main_camera",
-            .enabled = True,
-            .components = camera_components,
-            .component_count = sizeof(camera_components) / sizeof(camera_components[0]),
-        },
-    };
-
-    return actor_registry_load_actors(registry, scene_specs, sizeof(scene_specs) / sizeof(scene_specs[0]));
+static void run(const char *project_path) {
+    log_err("Running project '%s' is not implemented yet", project_path);
 }
 
 void run_program(void) {
-    ActorRegistry registry;
-    WindowConfig window_config = DefaultWindowConfig;
-
-    actor_registry_init(&registry);
-
-    if (load_project_window_config("example-project/springengine.conf", &window_config) != Ok)
-        log_warn("Falling back to default window config.");
-
-    if (load_bootstrap_scene(&registry) != Ok) {
-        actor_registry_dispose(&registry);
-        log_err("Failed to load bootstrap actors.");
+    if (program.argc < 2) {
+        log_usage();
         return;
     }
 
-    open_window(window_config);
+#define arg_equ(arg_index, arg_str) (program.argv[arg_index] && strcmp(program.argv[arg_index], arg_str) == 0)
 
-    do {
-        //
-    } while (!update_window(test_update));
+    if (arg_equ(1, "--version") || arg_equ(1, "-v")) {
+        version();
+        return;
+    }
 
-    close_window();
-    actor_registry_dispose(&registry);
+    if (arg_equ(1, "--run") || arg_equ(1, "-r")) {
+        if (program.argc < 3) {
+            log_err("Missing project path for --run command");
+            quit(Err);
+        }
+
+        const char *project_path = program.argv[2];
+        run(project_path);
+
+        return;
+    }
+
+    log_err("Unknown command '%s'", program.argv[1]);
+
+#undef arg_equ
 }
