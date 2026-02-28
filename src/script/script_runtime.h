@@ -9,6 +9,7 @@
 typedef struct {
     lua_State *lua_state;
     DJ *dj;
+    Actor *current_actor;
     char project_root[4096];
 } ScriptRuntime;
 

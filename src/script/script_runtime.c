@@ -29,6 +29,7 @@ typedef struct {
 static const char *DJ_REGISTRY_KEY = "__springengine_dj";
 static const char *PROJECT_ROOT_REGISTRY_KEY = "__springengine_project_root";
 static const char *RUNTIME_REGISTRY_KEY = "__springengine_runtime";
+static const char *CURRENT_ACTOR_REGISTRY_KEY = "__springengine_current_actor";
 
 enum {
     InputMaxSchemas = 16,
@@ -499,6 +500,121 @@ static int lua_input_was_key_pressed(lua_State *lua_state) {
     return 1;
 }
 
+static Actor *lua_runtime_current_actor(lua_State *lua_state) {
+    if (!lua_state)
+        return Null;
+
+    lua_getfield(lua_state, LUA_REGISTRYINDEX, CURRENT_ACTOR_REGISTRY_KEY);
+    Actor *actor = (Actor *)lua_touserdata(lua_state, -1);
+    lua_pop(lua_state, 1);
+    return actor;
+}
+
+static void lua_runtime_set_current_actor(lua_State *lua_state, Actor *actor) {
+    if (!lua_state)
+        return;
+
+    if (actor)
+        lua_pushlightuserdata(lua_state, actor);
+    else
+        lua_pushnil(lua_state);
+
+    lua_setfield(lua_state, LUA_REGISTRYINDEX, CURRENT_ACTOR_REGISTRY_KEY);
+}
+
+static int lua_transform_translate(lua_State *lua_state) {
+    Actor *actor = lua_runtime_current_actor(lua_state);
+    if (!actor)
+        return 0;
+
+    const float dx = (float)luaL_optnumber(lua_state, 1, 0.0);
+    const float dy = (float)luaL_optnumber(lua_state, 2, 0.0);
+    const float dz = (float)luaL_optnumber(lua_state, 3, 0.0);
+
+    actor->transform.position.x += dx;
+    actor->transform.position.y += dy;
+    actor->transform.position.z += dz;
+    return 0;
+}
+
+static int lua_transform_set_position(lua_State *lua_state) {
+    Actor *actor = lua_runtime_current_actor(lua_state);
+    if (!actor)
+        return 0;
+
+    actor->transform.position.x = (float)luaL_checknumber(lua_state, 1);
+    actor->transform.position.y = (float)luaL_checknumber(lua_state, 2);
+    actor->transform.position.z = (float)luaL_checknumber(lua_state, 3);
+    return 0;
+}
+
+static int lua_transform_get_position(lua_State *lua_state) {
+    Actor *actor = lua_runtime_current_actor(lua_state);
+    if (!actor) {
+        lua_pushnumber(lua_state, 0.0);
+        lua_pushnumber(lua_state, 0.0);
+        lua_pushnumber(lua_state, 0.0);
+        return 3;
+    }
+
+    lua_pushnumber(lua_state, actor->transform.position.x);
+    lua_pushnumber(lua_state, actor->transform.position.y);
+    lua_pushnumber(lua_state, actor->transform.position.z);
+    return 3;
+}
+
+static int lua_transform_set_rotation_euler(lua_State *lua_state) {
+    Actor *actor = lua_runtime_current_actor(lua_state);
+    if (!actor)
+        return 0;
+
+    actor->transform.rotation_euler.x = (float)luaL_checknumber(lua_state, 1);
+    actor->transform.rotation_euler.y = (float)luaL_checknumber(lua_state, 2);
+    actor->transform.rotation_euler.z = (float)luaL_checknumber(lua_state, 3);
+    return 0;
+}
+
+static int lua_transform_get_rotation_euler(lua_State *lua_state) {
+    Actor *actor = lua_runtime_current_actor(lua_state);
+    if (!actor) {
+        lua_pushnumber(lua_state, 0.0);
+        lua_pushnumber(lua_state, 0.0);
+        lua_pushnumber(lua_state, 0.0);
+        return 3;
+    }
+
+    lua_pushnumber(lua_state, actor->transform.rotation_euler.x);
+    lua_pushnumber(lua_state, actor->transform.rotation_euler.y);
+    lua_pushnumber(lua_state, actor->transform.rotation_euler.z);
+    return 3;
+}
+
+static int lua_transform_set_scale(lua_State *lua_state) {
+    Actor *actor = lua_runtime_current_actor(lua_state);
+    if (!actor)
+        return 0;
+
+    actor->transform.scale.x = (float)luaL_checknumber(lua_state, 1);
+    actor->transform.scale.y = (float)luaL_checknumber(lua_state, 2);
+    actor->transform.scale.z = (float)luaL_checknumber(lua_state, 3);
+    return 0;
+}
+
+static int lua_transform_get_scale(lua_State *lua_state) {
+    Actor *actor = lua_runtime_current_actor(lua_state);
+    if (!actor) {
+        lua_pushnumber(lua_state, 1.0);
+        lua_pushnumber(lua_state, 1.0);
+        lua_pushnumber(lua_state, 1.0);
+        return 3;
+    }
+
+    lua_pushnumber(lua_state, actor->transform.scale.x);
+    lua_pushnumber(lua_state, actor->transform.scale.y);
+    lua_pushnumber(lua_state, actor->transform.scale.z);
+    return 3;
+}
+
 static result register_input_library(ScriptRuntime *runtime) {
     if (!runtime || !runtime->lua_state)
         return Err;
@@ -519,6 +635,27 @@ static result register_input_library(ScriptRuntime *runtime) {
     luaL_setfuncs(runtime->lua_state, input_methods, 0);
     lua_setglobal(runtime->lua_state, "Input");
 
+    return Ok;
+}
+
+static result register_transform_library(ScriptRuntime *runtime) {
+    if (!runtime || !runtime->lua_state)
+        return Err;
+
+    static const luaL_Reg transform_methods[] = {
+        {"translate", lua_transform_translate},
+        {"set_position", lua_transform_set_position},
+        {"get_position", lua_transform_get_position},
+        {"set_rotation_euler", lua_transform_set_rotation_euler},
+        {"get_rotation_euler", lua_transform_get_rotation_euler},
+        {"set_scale", lua_transform_set_scale},
+        {"get_scale", lua_transform_get_scale},
+        {NULL, NULL},
+    };
+
+    lua_newtable(runtime->lua_state);
+    luaL_setfuncs(runtime->lua_state, transform_methods, 0);
+    lua_setglobal(runtime->lua_state, "Transform");
     return Ok;
 }
 
@@ -705,7 +842,9 @@ static boolean table_has_function(lua_State *lua_state, int table_index, const c
     return has_function;
 }
 
-static result call_script_method(lua_State *lua_state, int table_ref, const char *method_name, const char *actor_id, const char *module_path) {
+static result call_script_method(lua_State *lua_state, int table_ref, const char *method_name, Actor *actor, const char *module_path) {
+    const char *actor_id = actor && actor->id ? actor->id : "<unknown>";
+
     lua_rawgeti(lua_state, LUA_REGISTRYINDEX, table_ref);
     if (!lua_istable(lua_state, -1)) {
         log_err("Script state for module '%s' is not a table", module_path ? module_path : "<unknown>");
@@ -719,6 +858,8 @@ static result call_script_method(lua_State *lua_state, int table_ref, const char
         return Ok;
     }
 
+    lua_runtime_set_current_actor(lua_state, actor);
+
     lua_pushvalue(lua_state, -2);
 
     if (lua_pcall(lua_state, 1, 0, 0) != LUA_OK) {
@@ -729,10 +870,12 @@ static result call_script_method(lua_State *lua_state, int table_ref, const char
             actor_id ? actor_id : "<unknown>",
             module_path ? module_path : "<unknown>",
             error_message ? error_message : "<unknown error>");
+        lua_runtime_set_current_actor(lua_state, Null);
         lua_pop(lua_state, 2);
         return Err;
     }
 
+    lua_runtime_set_current_actor(lua_state, Null);
     lua_pop(lua_state, 1);
     return Ok;
 }
@@ -749,6 +892,7 @@ result script_runtime_init(ScriptRuntime *runtime, const char *project_root, DJ 
     }
 
     runtime->dj = dj;
+    runtime->current_actor = Null;
 
     if (load_input_config(project_root) != Ok)
         return Err;
@@ -768,6 +912,12 @@ result script_runtime_init(ScriptRuntime *runtime, const char *project_root, DJ 
     }
 
     if (register_input_library(runtime) != Ok) {
+        lua_close(runtime->lua_state);
+        runtime->lua_state = Null;
+        return Err;
+    }
+
+    if (register_transform_library(runtime) != Ok) {
         lua_close(runtime->lua_state);
         runtime->lua_state = Null;
         return Err;
@@ -871,10 +1021,10 @@ result script_component_initialize(Actor *actor, ActorComponent *component, void
         log_warn("Lua script '%s' has no lifecycle functions (awake/start/update/on_destroy)", state->module_path);
     }
 
-    if (state->has_awake && call_script_method(lua_state, state->table_ref, "awake", actor->id, state->module_path) != Ok)
+    if (state->has_awake && call_script_method(lua_state, state->table_ref, "awake", actor, state->module_path) != Ok)
         return Err;
 
-    if (state->has_start && call_script_method(lua_state, state->table_ref, "start", actor->id, state->module_path) != Ok)
+    if (state->has_start && call_script_method(lua_state, state->table_ref, "start", actor, state->module_path) != Ok)
         return Err;
 
     log_msg("Loaded script component '%s' on actor '%s'", state->module_path, actor->id ? actor->id : "<unknown>");
@@ -889,7 +1039,7 @@ void script_component_update(Actor *actor, ActorComponent *component, ScriptRunt
     if (!state->initialized || !state->has_update || state->table_ref == LUA_NOREF)
         return;
 
-    if (call_script_method(runtime->lua_state, state->table_ref, "update", actor->id, state->module_path) != Ok)
+    if (call_script_method(runtime->lua_state, state->table_ref, "update", actor, state->module_path) != Ok)
         state->has_update = False;
 }
 
@@ -901,7 +1051,7 @@ void script_component_destroy(Actor *actor, ActorComponent *component, ScriptRun
 
     if (runtime && runtime->lua_state && state->table_ref != LUA_NOREF) {
         if (state->has_on_destroy)
-            (void)call_script_method(runtime->lua_state, state->table_ref, "on_destroy", actor ? actor->id : "<unknown>", state->module_path);
+            (void)call_script_method(runtime->lua_state, state->table_ref, "on_destroy", actor, state->module_path);
 
         luaL_unref(runtime->lua_state, LUA_REGISTRYINDEX, state->table_ref);
         state->table_ref = LUA_NOREF;

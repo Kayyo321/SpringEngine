@@ -2,6 +2,15 @@
 
 #include <string.h>
 
+void actor_transform_reset(Actor *actor) {
+    if (!actor)
+        return;
+
+    actor->transform.position = (ActorVector3){0.0f, 0.0f, 0.0f};
+    actor->transform.rotation_euler = (ActorVector3){0.0f, 0.0f, 0.0f};
+    actor->transform.scale = (ActorVector3){1.0f, 1.0f, 1.0f};
+}
+
 static result ensure_actor_component_capacity(Actor *actor, usize required_capacity) {
     if (!actor)
         return Err;
@@ -34,6 +43,7 @@ void actor_init(Actor *actor, char *id, boolean enabled, int layer) {
     actor->id = id;
     actor->enabled = enabled;
     actor->layer = layer;
+    actor_transform_reset(actor);
     actor->components_heap = NullHeap;
     actor->components = Null;
     actor->component_count = 0;

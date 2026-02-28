@@ -6,6 +6,18 @@
 typedef struct Actor Actor;
 typedef struct ActorComponent ActorComponent;
 
+typedef struct {
+    float x;
+    float y;
+    float z;
+} ActorVector3;
+
+typedef struct {
+    ActorVector3 position;
+    ActorVector3 rotation_euler;
+    ActorVector3 scale;
+} ActorTransform;
+
 typedef enum {
     ComponentBuiltin,
     ComponentScript,
@@ -30,6 +42,7 @@ struct Actor {
     char *id;
     boolean enabled;
     int layer;
+    ActorTransform transform;
 
     Heap components_heap;
     ActorComponent *components;
@@ -62,6 +75,7 @@ void actor_dispose(Actor *actor);
 
 result actor_add_component(Actor *actor, ComponentDescriptor descriptor, void *data);
 result actor_initialize_components(Actor *actor);
+void actor_transform_reset(Actor *actor);
 
 void actor_registry_init(ActorRegistry *registry);
 void actor_registry_dispose(ActorRegistry *registry);

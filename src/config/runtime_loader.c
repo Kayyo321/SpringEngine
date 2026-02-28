@@ -27,6 +27,7 @@ typedef struct {
 typedef struct {
     char texture_path[PATH_MAX];
     char resolved_texture_path[PATH_MAX];
+    Actor *actor;
     Vector2 position;
     SpriteAnchor anchor;
     float scale;
@@ -84,6 +85,49 @@ static result read_xy_array(toml_datum_t table, const char *key, Vector2 *out_po
 
     out_position->x = x;
     out_position->y = y;
+    return Ok;
+}
+
+static result read_xyz_array(toml_datum_t table, const char *key, ActorVector3 *out_vector) {
+    if (table.type != TOML_TABLE || !key || !out_vector)
+        return Err;
+
+    toml_datum_t value = toml_get(table, key);
+    if (value.type != TOML_ARRAY || value.u.arr.size < 3)
+        return Err;
+
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (!toml_number_to_float(value.u.arr.elem[0], &x) || !toml_number_to_float(value.u.arr.elem[1], &y) || !toml_number_to_float(value.u.arr.elem[2], &z))
+        return Err;
+
+    out_vector->x = x;
+    out_vector->y = y;
+    out_vector->z = z;
+    return Ok;
+}
+
+static result read_actor_transform(toml_datum_t actor_table, ActorTransform *out_transform) {
+    if (!out_transform || actor_table.type != TOML_TABLE)
+        return Err;
+
+    toml_datum_t transform = toml_get(actor_table, "Transform");
+    if (transform.type != TOML_TABLE)
+        return Ok;
+
+    toml_datum_t position = toml_get(transform, "position");
+    if (position.type != TOML_UNKNOWN && read_xyz_array(transform, "position", &out_transform->position) != Ok)
+        return Err;
+
+    toml_datum_t rotation = toml_get(transform, "rotation_euler");
+    if (rotation.type != TOML_UNKNOWN && read_xyz_array(transform, "rotation_euler", &out_transform->rotation_euler) != Ok)
+        return Err;
+
+    toml_datum_t scale = toml_get(transform, "scale");
+    if (scale.type != TOML_UNKNOWN && read_xyz_array(transform, "scale", &out_transform->scale) != Ok)
+        return Err;
+
     return Ok;
 }
 
@@ -283,16 +327,27 @@ static void static_sprite_component_draw(StaticSpriteState *state) {
         (float)state->texture.height,
     };
 
+    float actor_x = 0.0f;
+    float actor_y = 0.0f;
+    float actor_scale_x = 1.0f;
+    float actor_scale_y = 1.0f;
+    if (state->actor) {
+        actor_x = state->actor->transform.position.x;
+        actor_y = state->actor->transform.position.y;
+        actor_scale_x = state->actor->transform.scale.x;
+        actor_scale_y = state->actor->transform.scale.y;
+    }
+
     Rectangle destination = {
-        state->position.x,
-        state->position.y,
-        (float)state->texture.width * state->scale,
-        (float)state->texture.height * state->scale,
+        actor_x + state->position.x,
+        actor_y + state->position.y,
+        (float)state->texture.width * state->scale * actor_scale_x,
+        (float)state->texture.height * state->scale * actor_scale_y,
     };
 
     Vector2 anchor = {
-        state->anchor.offset.x * state->scale,
-        state->anchor.offset.y * state->scale,
+        state->anchor.offset.x * state->scale * actor_scale_x,
+        state->anchor.offset.y * state->scale * actor_scale_y,
     };
 
     if (state->anchor.center) {
@@ -630,6 +685,11 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         return Err;
     }
 
+    if (read_actor_transform(actor_table, &actor->transform) != Ok) {
+        log_err("Actor '%s' has invalid Transform values", actor_id);
+        return Err;
+    }
+
     const char *module = find_script_module(actor_table);
     if (module) {
         void *script_state = script_component_state_create(module);
@@ -664,6 +724,7 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
 
         memset(sprite_state, 0, sizeof(*sprite_state));
         sprite_state->heap = sprite_heap;
+        sprite_state->actor = actor;
         sprite_state->position = (Vector2){0.0f, 0.0f};
         sprite_state->anchor = (SpriteAnchor){
             .center = False,
