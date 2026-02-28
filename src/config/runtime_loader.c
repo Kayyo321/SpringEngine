@@ -1,6 +1,8 @@
 #include "runtime_loader.h"
 
 #include "actor/actor.h"
+#include "actor/camera_component.h"
+#include "config/static_sprite_component.h"
 #include "dj/dj.h"
 #include "project_config.h"
 #include "script/script_runtime.h"
@@ -20,29 +22,11 @@
 #endif
 
 typedef struct {
-    boolean center;
-    Vector2 offset;
-} SpriteAnchor;
-
-typedef struct {
-    char texture_path[PATH_MAX];
-    char resolved_texture_path[PATH_MAX];
-    Actor *actor;
-    Vector2 position;
-    SpriteAnchor anchor;
-    float scale;
-    float rotation;
-    Color tint;
-    Texture2D texture;
-    boolean loaded;
-    boolean attempted_load;
-    Heap heap;
-} StaticSpriteState;
-
-typedef struct {
     ActorRegistry actor_registry;
     DJ dj;
     ScriptRuntime script_runtime;
+    CameraComponentData *active_camera;
+    Actor *active_camera_actor;
     boolean dj_enabled;
     boolean active;
     char project_root[PATH_MAX];
@@ -302,7 +286,31 @@ static result static_sprite_component_initialize(Actor *actor, ActorComponent *c
     return Ok;
 }
 
-static void static_sprite_component_draw(StaticSpriteState *state) {
+static result camera_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)context;
+
+    if (!actor || !component || !component->data)
+        return Err;
+
+    CameraComponentData *state = (CameraComponentData *)component->data;
+    state->camera.position = (Vector3){
+        actor->transform.position.x,
+        actor->transform.position.y,
+        actor->transform.position.z,
+    };
+
+    return Ok;
+}
+
+static void camera_component_dispose(CameraComponentData *state) {
+    if (!state)
+        return;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
+
+static void static_sprite_component_draw(StaticSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor) {
     if (!state)
         return;
 
@@ -338,11 +346,30 @@ static void static_sprite_component_draw(StaticSpriteState *state) {
         actor_scale_y = state->actor->transform.scale.y;
     }
 
+    float destination_x = actor_x + state->position.x;
+    float destination_y = actor_y + state->position.y;
+    float destination_width = (float)state->texture.width * state->scale * actor_scale_x;
+    float destination_height = (float)state->texture.height * state->scale * actor_scale_y;
+
+    if (active_camera && active_camera_actor) {
+        float zoom = 1.0f;
+        if (active_camera->camera.fovy > 0.001f)
+            zoom = 60.0f / active_camera->camera.fovy;
+
+        const float camera_x = active_camera_actor->transform.position.x;
+        const float camera_y = active_camera_actor->transform.position.y;
+
+        destination_x = (destination_x - camera_x) * zoom + ((float)GetScreenWidth() * 0.5f);
+        destination_y = (destination_y - camera_y) * zoom + ((float)GetScreenHeight() * 0.5f);
+        destination_width *= zoom;
+        destination_height *= zoom;
+    }
+
     Rectangle destination = {
-        actor_x + state->position.x,
-        actor_y + state->position.y,
-        (float)state->texture.width * state->scale * actor_scale_x,
-        (float)state->texture.height * state->scale * actor_scale_y,
+        destination_x,
+        destination_y,
+        destination_width,
+        destination_height,
     };
 
     Vector2 anchor = {
@@ -371,6 +398,17 @@ static void static_sprite_component_dispose(StaticSpriteState *state) {
 
     if (state->heap.pointer)
         deallocate(state->heap);
+}
+
+static void camera_component_sync(Actor *actor, CameraComponentData *camera_state) {
+    if (!actor || !camera_state)
+        return;
+
+    camera_state->camera.position = (Vector3){
+        actor->transform.position.x,
+        actor->transform.position.y,
+        actor->transform.position.z,
+    };
 }
 
 static boolean contains_autoload_actor_id(toml_datum_t project_toptab, const char *actor_id) {
@@ -543,6 +581,24 @@ static void frame_update(void) {
         }
     }
 
+    runtime_state.active_camera = Null;
+    runtime_state.active_camera_actor = Null;
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->enabled)
+            continue;
+
+        CameraComponentData *camera_state = actor_find_camera_component(actor);
+        if (!camera_state)
+            continue;
+
+        camera_component_sync(actor, camera_state);
+        if (!runtime_state.active_camera && camera_state->active) {
+            runtime_state.active_camera = camera_state;
+            runtime_state.active_camera_actor = actor;
+        }
+    }
+
     usize enabled_actor_count = 0;
     for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
         Actor *actor = &runtime_state.actor_registry.actors[actor_index];
@@ -582,7 +638,7 @@ static void frame_update(void) {
             ActorComponent *component = &actor->components[component_index];
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
-                static_sprite_component_draw((StaticSpriteState *)component->data);
+                static_sprite_component_draw((StaticSpriteState *)component->data, runtime_state.active_camera, runtime_state.active_camera_actor);
         }
     }
 
@@ -600,8 +656,59 @@ static void dispose_runtime_components(void) {
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
                 static_sprite_component_dispose((StaticSpriteState *)component->data);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Camera") == 0)
+                camera_component_dispose((CameraComponentData *)component->data);
         }
     }
+}
+
+static result read_vector3_from_table(toml_datum_t table, const char *key, Vector3 *out_vector) {
+    if (!out_vector)
+        return Err;
+
+    ActorVector3 actor_vector = {0.0f, 0.0f, 0.0f};
+    if (read_xyz_array(table, key, &actor_vector) != Ok)
+        return Err;
+
+    *out_vector = (Vector3){
+        actor_vector.x,
+        actor_vector.y,
+        actor_vector.z,
+    };
+
+    return Ok;
+}
+
+static const toml_datum_t *find_camera_component_table(toml_datum_t actor_table, toml_datum_t *out_camera_table) {
+    if (out_camera_table)
+        *out_camera_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE || !out_camera_table)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t camera = toml_get(components, "Camera");
+            if (camera.type == TOML_TABLE) {
+                *out_camera_table = camera;
+                return out_camera_table;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t camera = toml_get(components, "Camera");
+        if (camera.type == TOML_TABLE) {
+            *out_camera_table = camera;
+            return out_camera_table;
+        }
+    }
+
+    return Null;
 }
 
 static result find_actor_table_by_id(toml_datum_t actors_array, const char *actor_id, toml_datum_t *out_actor_table) {
@@ -708,6 +815,92 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         if (actor_add_component(actor, descriptor, script_state) != Ok) {
             script_component_state_dispose(script_state);
             log_err("Failed to add script component '%s' to actor '%s'", module, actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t camera_component_table = {0};
+    if (find_camera_component_table(actor_table, &camera_component_table)) {
+        Heap camera_heap = allocate(1, sizeof(CameraComponentData));
+        CameraComponentData *camera_state = (CameraComponentData *)camera_heap.pointer;
+        if (!camera_state) {
+            log_err("Failed to allocate camera state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(camera_state, 0, sizeof(*camera_state));
+        camera_state->heap = camera_heap;
+        camera_state->camera.position = (Vector3){
+            actor->transform.position.x,
+            actor->transform.position.y,
+            actor->transform.position.z,
+        };
+        camera_state->camera.target = (Vector3){
+            actor->transform.position.x,
+            actor->transform.position.y,
+            actor->transform.position.z - 1.0f,
+        };
+        camera_state->camera.up = (Vector3){0.0f, 1.0f, 0.0f};
+        camera_state->camera.fovy = 60.0f;
+        camera_state->camera.projection = CAMERA_PERSPECTIVE;
+        camera_state->near_clip = 0.1f;
+        camera_state->far_clip = 1000.0f;
+        camera_state->active = True;
+
+        toml_datum_t projection = toml_get(camera_component_table, "projection");
+        if (projection.type == TOML_STRING && projection.u.s && projection.u.s[0] != '\0') {
+            if (strcmp(projection.u.s, "orthographic") == 0)
+                camera_state->camera.projection = CAMERA_ORTHOGRAPHIC;
+            else
+                camera_state->camera.projection = CAMERA_PERSPECTIVE;
+        }
+
+        float fov = 0.0f;
+        toml_datum_t fov_value = toml_get(camera_component_table, "fov");
+        if (toml_number_to_float(fov_value, &fov) && fov > 0.0f)
+            camera_state->camera.fovy = fov;
+
+        toml_datum_t fov_y_value = toml_get(camera_component_table, "fov_y");
+        if (toml_number_to_float(fov_y_value, &fov) && fov > 0.0f)
+            camera_state->camera.fovy = fov;
+
+        float clip_value = 0.0f;
+        toml_datum_t near_clip = toml_get(camera_component_table, "near_clip");
+        if (toml_number_to_float(near_clip, &clip_value) && clip_value > 0.0f)
+            camera_state->near_clip = clip_value;
+
+        toml_datum_t far_clip = toml_get(camera_component_table, "far_clip");
+        if (toml_number_to_float(far_clip, &clip_value) && clip_value > 0.0f)
+            camera_state->far_clip = clip_value;
+
+        toml_datum_t target = toml_get(camera_component_table, "target");
+        if (target.type != TOML_UNKNOWN && read_vector3_from_table(camera_component_table, "target", &camera_state->camera.target) != Ok) {
+            camera_component_dispose(camera_state);
+            log_err("Actor '%s' has invalid Camera.target; expected [x, y, z]", actor_id);
+            return Err;
+        }
+
+        toml_datum_t up = toml_get(camera_component_table, "up");
+        if (up.type != TOML_UNKNOWN && read_vector3_from_table(camera_component_table, "up", &camera_state->camera.up) != Ok) {
+            camera_component_dispose(camera_state);
+            log_err("Actor '%s' has invalid Camera.up; expected [x, y, z]", actor_id);
+            return Err;
+        }
+
+        toml_datum_t active = toml_get(camera_component_table, "active");
+        if (active.type == TOML_BOOLEAN)
+            camera_state->active = active.u.boolean ? True : False;
+
+        ComponentDescriptor descriptor = {
+            .name = "Camera",
+            .kind = ComponentBuiltin,
+            .initialize = camera_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, camera_state) != Ok) {
+            camera_component_dispose(camera_state);
+            log_err("Failed to add camera component to actor '%s'", actor_id);
             return Err;
         }
     }
@@ -1035,6 +1228,7 @@ result run_project_runtime(const char *project_path) {
     runtime_state.active = True;
     if (script_runtime_init(&runtime_state.script_runtime, project_path, runtime_state.dj_enabled ? &runtime_state.dj : Null) != Ok)
         goto fail;
+    script_runtime_bind_registry(&runtime_state.script_runtime, &runtime_state.actor_registry);
 
     if (load_autoload_actors(project_toml.toptab, autoload_toml.toptab) != Ok)
         goto fail;

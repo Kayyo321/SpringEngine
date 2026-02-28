@@ -9,11 +9,13 @@
 typedef struct {
     lua_State *lua_state;
     DJ *dj;
+    ActorRegistry *actor_registry;
     Actor *current_actor;
     char project_root[4096];
 } ScriptRuntime;
 
 result script_runtime_init(ScriptRuntime *runtime, const char *project_root, DJ *dj);
+void script_runtime_bind_registry(ScriptRuntime *runtime, ActorRegistry *actor_registry);
 void script_runtime_dispose(ScriptRuntime *runtime);
 
 void *script_component_state_create(const char *module_path);

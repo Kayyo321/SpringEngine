@@ -35,11 +35,6 @@ function crate:update()
         if Input.accepted("MoveRight") then move_x = move_x + 1.0 end
         if Input.accepted("MoveUp") then move_y = move_y - 1.0 end
         if Input.accepted("MoveDown") then move_y = move_y + 1.0 end
-    elseif Input and Input.is_key_down then
-        if Input.is_key_down("A") then move_x = move_x - 1.0 end
-        if Input.is_key_down("D") then move_x = move_x + 1.0 end
-        if Input.is_key_down("W") then move_y = move_y - 1.0 end
-        if Input.is_key_down("S") then move_y = move_y + 1.0 end
     end
 
     if Transform and Transform.translate then
