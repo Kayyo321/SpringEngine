@@ -1,0 +1,29 @@
+
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  DEBUG: "1"
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-go@v5
+      with:
+        cache: false
+    - name: install toml-test
+      run: go install github.com/toml-lang/toml-test/v2/cmd/toml-test@latest
+    - name: make clean all
+      run: make clean all
+    - name: make test
+      run: make test
+    - name: make install
+      run: make install prefix=./tmp
