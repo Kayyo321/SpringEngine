@@ -4,6 +4,8 @@ local player = {
 	gravity = -24.0,
 	vertical_velocity = 0.0,
 	is_grounded = false,
+	air_time = 0.0,
+	max_air_time = 4.0,
 	last_schema = nil,
 	action_was_active = {},
 }
@@ -13,6 +15,12 @@ local function log_message(message)
 		Engine.log(message)
 	elseif print then
 		print(message)
+	end
+end
+
+local function play_stomp_sfx()
+	if DJ and DJ.play_sound then
+		DJ.play_sound("stomp-sfx")
 	end
 end
 
@@ -123,7 +131,11 @@ end
 function player:start()
 	self.vertical_velocity = 0.0
 	self.is_grounded = true
+	self.air_time = 0.0
 	self.last_schema = current_schema_name()
+	if DJ and DJ.load_sound then
+		DJ.load_sound("assets/Sounds/stomp-sfx.wav", "stomp-sfx")
+	end
 	log_message("player.lua start")
 	log_message("Current input schema: " .. self.last_schema)
 	log_message("Press TAB to toggle input schema (Normal/Menu)")
@@ -144,12 +156,29 @@ function player:update()
 		)
 	end
 
-	if Input and Input.accepted and Input.accepted("Jump") and self.is_grounded then
+	local jump_pressed = false
+	if Input and Input.accepted and Input.accepted("Jump") then
+		jump_pressed = true
+	elseif Input and Input.was_key_pressed and Input.was_key_pressed("SPACE") then
+		jump_pressed = true
+	end
+
+	if jump_pressed and self.is_grounded then
 		self.vertical_velocity = self.jump_speed
 		self.is_grounded = false
-	elseif Input and Input.was_key_pressed and Input.was_key_pressed("SPACE") and self.is_grounded then
-		self.vertical_velocity = self.jump_speed
-		self.is_grounded = false
+		self.air_time = 0.0
+		play_stomp_sfx()
+	end
+
+	if self.is_grounded then
+		self.air_time = 0.0
+	else
+		self.air_time = self.air_time + delta_time
+		if self.air_time >= self.max_air_time then
+			self.is_grounded = true
+			self.air_time = 0.0
+			self.vertical_velocity = 0.0
+		end
 	end
 
 	self.vertical_velocity = self.vertical_velocity + self.gravity * delta_time
