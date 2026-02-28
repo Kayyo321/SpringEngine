@@ -2,15 +2,17 @@
 #define SCRIPT_RUNTIME_H
 
 #include "actor/actor.h"
+#include "dj/dj.h"
 
 #include "lua.h"
 
 typedef struct {
     lua_State *lua_state;
+    DJ *dj;
     char project_root[4096];
 } ScriptRuntime;
 
-result script_runtime_init(ScriptRuntime *runtime, const char *project_root);
+result script_runtime_init(ScriptRuntime *runtime, const char *project_root, DJ *dj);
 void script_runtime_dispose(ScriptRuntime *runtime);
 
 void *script_component_state_create(const char *module_path);

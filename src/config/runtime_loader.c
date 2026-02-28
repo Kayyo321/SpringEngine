@@ -1,6 +1,7 @@
 #include "runtime_loader.h"
 
 #include "actor/actor.h"
+#include "dj/dj.h"
 #include "project_config.h"
 #include "script/script_runtime.h"
 #include "windowman/windowman.h"
@@ -20,11 +21,34 @@
 
 typedef struct {
     ActorRegistry actor_registry;
+    DJ dj;
     ScriptRuntime script_runtime;
+    boolean dj_enabled;
     boolean active;
 } RuntimeState;
 
 static RuntimeState runtime_state;
+
+static boolean contains_autoload_actor_id(toml_datum_t project_toptab, const char *actor_id) {
+    if (project_toptab.type != TOML_TABLE || !actor_id || actor_id[0] == '\0')
+        return False;
+
+    toml_datum_t persistence = toml_get(project_toptab, "Persistence");
+    if (persistence.type != TOML_TABLE)
+        return False;
+
+    toml_datum_t autoload_actor_ids = toml_get(persistence, "autoload_actor_ids");
+    if (autoload_actor_ids.type != TOML_ARRAY)
+        return False;
+
+    for (int index = 0; index < autoload_actor_ids.u.arr.size; ++index) {
+        toml_datum_t item = autoload_actor_ids.u.arr.elem[index];
+        if (item.type == TOML_STRING && item.u.s && strcmp(item.u.s, actor_id) == 0)
+            return True;
+    }
+
+    return False;
+}
 
 static boolean has_conf_extension(const char *file_name) {
     if (!file_name)
@@ -159,6 +183,9 @@ static result validate_conf_files(const char *directory_path, usize *out_conf_co
 static void frame_update(void) {
     if (!runtime_state.active)
         return;
+
+    if (runtime_state.dj_enabled)
+        update_dj(&runtime_state.dj);
 
     for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
         Actor *actor = &runtime_state.actor_registry.actors[actor_index];
@@ -492,11 +519,16 @@ result run_project_runtime(const char *project_path) {
         goto fail;
     scene_data_ok = True;
 
-    actor_registry_init(&runtime_state.actor_registry);
-    if (script_runtime_init(&runtime_state.script_runtime, project_path) != Ok)
-        goto fail;
+    runtime_state.dj_enabled = contains_autoload_actor_id(project_toml.toptab, "global_audio");
+    if (runtime_state.dj_enabled) {
+        runtime_state.dj = init_dj();
+        log_msg("Initialized DJ runtime (Persistence.autoload_actor_ids contains 'global_audio')");
+    }
 
+    actor_registry_init(&runtime_state.actor_registry);
     runtime_state.active = True;
+    if (script_runtime_init(&runtime_state.script_runtime, project_path, runtime_state.dj_enabled ? &runtime_state.dj : Null) != Ok)
+        goto fail;
 
     if (load_autoload_actors(project_toml.toptab, autoload_toml.toptab) != Ok)
         goto fail;
@@ -519,6 +551,10 @@ result run_project_runtime(const char *project_path) {
     dispose_runtime_components();
     actor_registry_dispose(&runtime_state.actor_registry);
     script_runtime_dispose(&runtime_state.script_runtime);
+    if (runtime_state.dj_enabled) {
+        dispose_dj(&runtime_state.dj);
+        runtime_state.dj_enabled = False;
+    }
     runtime_state.active = False;
 
     if (scene_data_ok)
@@ -537,6 +573,10 @@ fail:
         dispose_runtime_components();
         actor_registry_dispose(&runtime_state.actor_registry);
         script_runtime_dispose(&runtime_state.script_runtime);
+        if (runtime_state.dj_enabled) {
+            dispose_dj(&runtime_state.dj);
+            runtime_state.dj_enabled = False;
+        }
         runtime_state.active = False;
     }
 

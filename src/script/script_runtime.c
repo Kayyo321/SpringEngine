@@ -23,6 +23,9 @@ typedef struct {
     boolean initialized;
 } ScriptComponentState;
 
+static const char *DJ_REGISTRY_KEY = "__springengine_dj";
+static const char *PROJECT_ROOT_REGISTRY_KEY = "__springengine_project_root";
+
 static result runtime_join_path(const char *base, const char *path, char *out_path, usize out_size) {
     if (!base || !path || !out_path || out_size == 0)
         return Err;
@@ -36,6 +39,165 @@ static result runtime_join_path(const char *base, const char *path, char *out_pa
 
     if (snprintf(out_path, out_size, "%s/%s", base, path) >= (int)out_size)
         return Err;
+
+    return Ok;
+}
+
+static DJ *lua_runtime_dj(lua_State *lua_state) {
+    if (!lua_state)
+        return Null;
+
+    lua_getfield(lua_state, LUA_REGISTRYINDEX, DJ_REGISTRY_KEY);
+    DJ *dj = (DJ *)lua_touserdata(lua_state, -1);
+    lua_pop(lua_state, 1);
+    return dj;
+}
+
+static const char *lua_runtime_project_root(lua_State *lua_state) {
+    if (!lua_state)
+        return Null;
+
+    lua_getfield(lua_state, LUA_REGISTRYINDEX, PROJECT_ROOT_REGISTRY_KEY);
+    const char *project_root = lua_tostring(lua_state, -1);
+    lua_pop(lua_state, 1);
+    return project_root;
+}
+
+static result resolve_audio_path(lua_State *lua_state, const char *path, char *out_path, usize out_size) {
+    if (!lua_state || !path || !out_path || out_size == 0)
+        return Err;
+
+    const char *project_root = lua_runtime_project_root(lua_state);
+    if (!project_root)
+        return Err;
+
+    return runtime_join_path(project_root, path, out_path, out_size);
+}
+
+static int lua_dj_load_sound(lua_State *lua_state) {
+    const char *path = luaL_checkstring(lua_state, 1);
+    const char *alias = luaL_checkstring(lua_state, 2);
+
+    DJ *dj = lua_runtime_dj(lua_state);
+    if (!dj)
+        return luaL_error(lua_state, "DJ runtime is not initialized");
+
+    char full_path[PATH_MAX] = {0};
+    if (resolve_audio_path(lua_state, path, full_path, sizeof(full_path)) != Ok)
+        return luaL_error(lua_state, "Failed to resolve DJ sound path '%s'", path);
+
+    load_sound_source_as(dj, full_path, alias);
+    return 0;
+}
+
+static int lua_dj_play_sound(lua_State *lua_state) {
+    const char *alias = luaL_checkstring(lua_state, 1);
+
+    DJ *dj = lua_runtime_dj(lua_state);
+    if (!dj)
+        return luaL_error(lua_state, "DJ runtime is not initialized");
+
+    lua_pushinteger(lua_state, play_sound(dj, alias));
+    return 1;
+}
+
+static int lua_dj_restart_sound(lua_State *lua_state) {
+    const int channel = (int)luaL_checkinteger(lua_state, 1);
+
+    DJ *dj = lua_runtime_dj(lua_state);
+    if (!dj)
+        return luaL_error(lua_state, "DJ runtime is not initialized");
+
+    restart_sound(dj, channel);
+    return 0;
+}
+
+static int lua_dj_stop_sound(lua_State *lua_state) {
+    const int channel = (int)luaL_checkinteger(lua_state, 1);
+
+    DJ *dj = lua_runtime_dj(lua_state);
+    if (!dj)
+        return luaL_error(lua_state, "DJ runtime is not initialized");
+
+    stop_sound(dj, channel);
+    return 0;
+}
+
+static int lua_dj_load_music(lua_State *lua_state) {
+    const char *path = luaL_checkstring(lua_state, 1);
+    const char *alias = luaL_checkstring(lua_state, 2);
+
+    DJ *dj = lua_runtime_dj(lua_state);
+    if (!dj)
+        return luaL_error(lua_state, "DJ runtime is not initialized");
+
+    char full_path[PATH_MAX] = {0};
+    if (resolve_audio_path(lua_state, path, full_path, sizeof(full_path)) != Ok)
+        return luaL_error(lua_state, "Failed to resolve DJ music path '%s'", path);
+
+    load_music_source_as(dj, full_path, alias);
+    return 0;
+}
+
+static int lua_dj_play_music(lua_State *lua_state) {
+    const char *alias = luaL_checkstring(lua_state, 1);
+    const boolean loop = lua_toboolean(lua_state, 2) ? True : False;
+
+    DJ *dj = lua_runtime_dj(lua_state);
+    if (!dj)
+        return luaL_error(lua_state, "DJ runtime is not initialized");
+
+    lua_pushinteger(lua_state, play_music(dj, alias, loop));
+    return 1;
+}
+
+static int lua_dj_restart_music(lua_State *lua_state) {
+    const int channel = (int)luaL_checkinteger(lua_state, 1);
+
+    DJ *dj = lua_runtime_dj(lua_state);
+    if (!dj)
+        return luaL_error(lua_state, "DJ runtime is not initialized");
+
+    restart_music(dj, channel);
+    return 0;
+}
+
+static int lua_dj_stop_music(lua_State *lua_state) {
+    const int channel = (int)luaL_checkinteger(lua_state, 1);
+
+    DJ *dj = lua_runtime_dj(lua_state);
+    if (!dj)
+        return luaL_error(lua_state, "DJ runtime is not initialized");
+
+    stop_music(dj, channel);
+    return 0;
+}
+
+static result register_dj_library(ScriptRuntime *runtime) {
+    if (!runtime || !runtime->lua_state || !runtime->dj)
+        return Ok;
+
+    static const luaL_Reg dj_methods[] = {
+        {"load_sound", lua_dj_load_sound},
+        {"play_sound", lua_dj_play_sound},
+        {"restart_sound", lua_dj_restart_sound},
+        {"stop_sound", lua_dj_stop_sound},
+        {"load_music", lua_dj_load_music},
+        {"play_music", lua_dj_play_music},
+        {"restart_music", lua_dj_restart_music},
+        {"stop_music", lua_dj_stop_music},
+        {NULL, NULL},
+    };
+
+    lua_pushlightuserdata(runtime->lua_state, runtime->dj);
+    lua_setfield(runtime->lua_state, LUA_REGISTRYINDEX, DJ_REGISTRY_KEY);
+
+    lua_pushstring(runtime->lua_state, runtime->project_root);
+    lua_setfield(runtime->lua_state, LUA_REGISTRYINDEX, PROJECT_ROOT_REGISTRY_KEY);
+
+    lua_newtable(runtime->lua_state);
+    luaL_setfuncs(runtime->lua_state, dj_methods, 0);
+    lua_setglobal(runtime->lua_state, "DJ");
 
     return Ok;
 }
@@ -79,7 +241,7 @@ static result call_script_method(lua_State *lua_state, int table_ref, const char
     return Ok;
 }
 
-result script_runtime_init(ScriptRuntime *runtime, const char *project_root) {
+result script_runtime_init(ScriptRuntime *runtime, const char *project_root, DJ *dj) {
     if (!runtime || !project_root)
         return Err;
 
@@ -90,6 +252,8 @@ result script_runtime_init(ScriptRuntime *runtime, const char *project_root) {
         return Err;
     }
 
+    runtime->dj = dj;
+
     runtime->lua_state = luaL_newstate();
     if (!runtime->lua_state) {
         log_err("Failed to create Lua state");
@@ -97,6 +261,13 @@ result script_runtime_init(ScriptRuntime *runtime, const char *project_root) {
     }
 
     luaL_openlibs(runtime->lua_state);
+
+    if (register_dj_library(runtime) != Ok) {
+        lua_close(runtime->lua_state);
+        runtime->lua_state = Null;
+        return Err;
+    }
+
     return Ok;
 }
 
