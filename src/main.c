@@ -14,6 +14,10 @@ static void spring_engine(void) {
     {
         const time_t start_time = time(Null);
 
+#ifdef TESTING
+        run_all_tests();
+#endif // TESTING
+
         run_program();
 
         const time_t end_time = time(Null);

@@ -2,7 +2,6 @@
 #define COMMON_H
 
 #define Version "0.1.0"
-#define TESTING 1
 
 enum {
     True = 1,

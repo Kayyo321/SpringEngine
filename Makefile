@@ -8,8 +8,15 @@ LIBDIR := lib
 OBJDIR := obj
 BINDIR := bin
 TARGET ?= $(BINDIR)/springengine
+TEST_TARGET := $(BINDIR)/springengine-test
 
-SRC := $(shell find $(SRCDIR) -type f -name '*.c')
+ALL_SRC := $(shell find $(SRCDIR) -type f -name '*.c')
+TEST_SRC := $(shell find $(SRCDIR)/testing -type f -name '*.c' 2>/dev/null)
+SRC := $(filter-out $(TEST_SRC),$(ALL_SRC))
+ifneq (,$(filter test,$(MAKECMDGOALS)))
+SRC += $(TEST_SRC)
+TARGET := $(TEST_TARGET)
+endif
 OBJ := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRC))
 
 INCLUDE_DIRS := $(shell find $(SRCDIR) $(LIBDIR) -type d 2>/dev/null)
@@ -44,7 +51,7 @@ LDFLAGS += -framework Cocoa -framework IOKit -framework CoreVideo -framework Cor
 LDLIBS += -lm
 endif
 
-.PHONY: all clean fclean re
+.PHONY: all clean fclean re test
 
 all: $(TARGET)
 
@@ -63,6 +70,10 @@ clean:
 	@find $(OBJDIR) -type d -empty -delete 2>/dev/null || true
 
 fclean: clean
-	@rm -f $(TARGET)
+	@rm -f $(BINDIR)/springengine $(TEST_TARGET)
 
 re: fclean all
+
+test: CPPFLAGS += -DTESTING
+test: re
+	./$(TARGET)

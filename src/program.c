@@ -1,5 +1,4 @@
 #include "program.h"
-#include "testing/testing.h"
 
 #include "windowman/windowman.h"
 
@@ -8,7 +7,6 @@ void test_update(void) {
 }
 
 void run_program(void) {
-#ifndef TESTING
 	open_window(DefaultWindowConfig);
 
     do {
@@ -16,7 +14,4 @@ void run_program(void) {
     } while (!update_window(test_update));
 
     close_window();
-#else 
-    run_all_tests();
-#endif // TESTING
 }
