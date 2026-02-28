@@ -10,6 +10,10 @@ BINDIR := bin
 TARGET ?= $(BINDIR)/springengine
 TEST_TARGET := $(BINDIR)/springengine-test
 
+LUA_DIR := $(LIBDIR)/lua-5.4.6
+LUA_INCLUDE_DIR := $(LUA_DIR)/src
+LUA_STATIC_LIB := $(LUA_DIR)/lib/liblua.a
+
 ALL_SRC := $(shell find $(SRCDIR) -type f -name '*.c')
 TEST_SRC := $(shell find $(SRCDIR)/testing -type f -name '*.c' 2>/dev/null)
 SRC := $(filter-out $(TEST_SRC),$(ALL_SRC))
@@ -21,6 +25,11 @@ OBJ := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRC))
 
 INCLUDE_DIRS := $(shell find $(SRCDIR) $(LIBDIR) -type d 2>/dev/null)
 CPPFLAGS += $(addprefix -I,$(INCLUDE_DIRS))
+CPPFLAGS += -I$(LUA_INCLUDE_DIR)
+
+ifeq ($(wildcard $(LUA_STATIC_LIB)),)
+$(error Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make macosx && mkdir -p lib && cp -f src/*.a lib/)
+endif
 
 LIB_FILES := $(shell \
 	find $(LIBDIR) -type f \( -name '*.a' -o -name '*.dylib' -o -name '*.dylib.*' -o -name '*.so' -o -name '*.so.*' \) 2>/dev/null | sort | \
@@ -43,7 +52,9 @@ LIB_FILES := $(shell \
 	} END { \
 		for (name in best_path) print best_path[name]; \
 	}' | sort)
+LIB_FILES := $(filter-out $(LUA_STATIC_LIB),$(LIB_FILES))
 LDLIBS += $(LIB_FILES)
+LDLIBS += $(LUA_STATIC_LIB)
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)

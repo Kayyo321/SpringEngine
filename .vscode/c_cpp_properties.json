@@ -14,12 +14,15 @@
         "${workspaceFolder}/src/**",
         "${workspaceFolder}/lib",
         "${workspaceFolder}/lib/**",
+        "${workspaceFolder}/lib/lua-5.4.6/src",
+        "${workspaceFolder}/lib/lua-5.4.6/src/**",
         "${workspaceFolder}/lib/raylib/include"
       ],
       "browse": {
         "path": [
           "${workspaceFolder}/src",
           "${workspaceFolder}/lib",
+          "${workspaceFolder}/lib/lua-5.4.6/src",
           "${workspaceFolder}/lib/raylib/include"
         ],
         "limitSymbolsToIncludedHeaders": true
