@@ -57,3 +57,7 @@ dkms.conf
 # Binaries for programs and plugins
 /bin/
 /obj/
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store
