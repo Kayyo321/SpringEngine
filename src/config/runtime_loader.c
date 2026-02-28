@@ -20,14 +20,161 @@
 #endif
 
 typedef struct {
+    char texture_path[PATH_MAX];
+    char resolved_texture_path[PATH_MAX];
+    Vector2 position;
+    float scale;
+    float rotation;
+    Color tint;
+    Texture2D texture;
+    boolean loaded;
+    boolean attempted_load;
+    Heap heap;
+} StaticSpriteState;
+
+typedef struct {
     ActorRegistry actor_registry;
     DJ dj;
     ScriptRuntime script_runtime;
     boolean dj_enabled;
     boolean active;
+    char project_root[PATH_MAX];
 } RuntimeState;
 
 static RuntimeState runtime_state;
+
+static result join_path(const char *base, const char *path, char *out_path, usize out_size);
+
+static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
+    if (!out_number)
+        return False;
+
+    if (value.type == TOML_FP64) {
+        *out_number = (float)value.u.fp64;
+        return True;
+    }
+
+    if (value.type == TOML_INT64) {
+        *out_number = (float)value.u.int64;
+        return True;
+    }
+
+    return False;
+}
+
+static result read_xy_array(toml_datum_t table, const char *key, Vector2 *out_position) {
+    if (table.type != TOML_TABLE || !key || !out_position)
+        return Err;
+
+    toml_datum_t value = toml_get(table, key);
+    if (value.type != TOML_ARRAY || value.u.arr.size < 2)
+        return Err;
+
+    float x = 0.0f;
+    float y = 0.0f;
+    if (!toml_number_to_float(value.u.arr.elem[0], &x) || !toml_number_to_float(value.u.arr.elem[1], &y))
+        return Err;
+
+    out_position->x = x;
+    out_position->y = y;
+    return Ok;
+}
+
+static const char *find_static_sprite_texture(toml_datum_t actor_table, toml_datum_t *out_static_sprite_table) {
+    if (out_static_sprite_table)
+        *out_static_sprite_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t static_sprite = toml_get(components, "StaticSprite");
+            if (static_sprite.type == TOML_TABLE) {
+                toml_datum_t texture = toml_get(static_sprite, "texture");
+                if (texture.type == TOML_STRING && texture.u.s && texture.u.s[0] != '\0') {
+                    if (out_static_sprite_table)
+                        *out_static_sprite_table = static_sprite;
+                    return texture.u.s;
+                }
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t static_sprite = toml_get(components, "StaticSprite");
+        if (static_sprite.type == TOML_TABLE) {
+            toml_datum_t texture = toml_get(static_sprite, "texture");
+            if (texture.type == TOML_STRING && texture.u.s && texture.u.s[0] != '\0') {
+                if (out_static_sprite_table)
+                    *out_static_sprite_table = static_sprite;
+                return texture.u.s;
+            }
+        }
+    }
+
+    return Null;
+}
+
+static result static_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)actor;
+    (void)context;
+
+    if (!component || !component->data)
+        return Err;
+
+    StaticSpriteState *state = (StaticSpriteState *)component->data;
+    if (!state->texture_path[0])
+        return Err;
+
+    if (join_path(runtime_state.project_root, state->texture_path, state->resolved_texture_path, sizeof(state->resolved_texture_path)) != Ok) {
+        log_err("Failed to resolve static sprite texture path '%s'", state->texture_path);
+        return Err;
+    }
+
+    state->attempted_load = False;
+    state->loaded = False;
+    return Ok;
+}
+
+static void static_sprite_component_draw(StaticSpriteState *state) {
+    if (!state)
+        return;
+
+    if (!state->loaded) {
+        if (state->attempted_load)
+            return;
+
+        state->attempted_load = True;
+        state->texture = LoadTexture(state->resolved_texture_path);
+        if (state->texture.id == 0) {
+            log_err("Failed to load static sprite texture '%s'", state->resolved_texture_path);
+            return;
+        }
+
+        state->loaded = True;
+    }
+
+    DrawTextureEx(state->texture, state->position, state->rotation, state->scale, state->tint);
+}
+
+static void static_sprite_component_dispose(StaticSpriteState *state) {
+    if (!state)
+        return;
+
+    if (state->loaded) {
+        UnloadTexture(state->texture);
+        state->loaded = False;
+    }
+
+    state->attempted_load = False;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
 
 static boolean contains_autoload_actor_id(toml_datum_t project_toptab, const char *actor_id) {
     if (project_toptab.type != TOML_TABLE || !actor_id || actor_id[0] == '\0')
@@ -189,11 +336,16 @@ static void frame_update(void) {
 
     for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
         Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->enabled)
+            continue;
 
         for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
             ActorComponent *component = &actor->components[component_index];
             if (component->descriptor.kind == ComponentScript)
                 script_component_update(actor, component, &runtime_state.script_runtime);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
+                static_sprite_component_draw((StaticSpriteState *)component->data);
         }
     }
 }
@@ -206,6 +358,9 @@ static void dispose_runtime_components(void) {
             ActorComponent *component = &actor->components[component_index];
             if (component->descriptor.kind == ComponentScript)
                 script_component_destroy(actor, component, &runtime_state.script_runtime);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
+                static_sprite_component_dispose((StaticSpriteState *)component->data);
         }
     }
 }
@@ -295,6 +450,69 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         if (actor_add_component(actor, descriptor, script_state) != Ok) {
             script_component_state_dispose(script_state);
             log_err("Failed to add script component '%s' to actor '%s'", module, actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t static_sprite_table = {0};
+    const char *static_sprite_texture = find_static_sprite_texture(actor_table, &static_sprite_table);
+    if (static_sprite_texture) {
+        Heap sprite_heap = allocate(1, sizeof(StaticSpriteState));
+        StaticSpriteState *sprite_state = (StaticSpriteState *)sprite_heap.pointer;
+        if (!sprite_state) {
+            log_err("Failed to allocate static sprite state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(sprite_state, 0, sizeof(*sprite_state));
+        sprite_state->heap = sprite_heap;
+        sprite_state->position = (Vector2){0.0f, 0.0f};
+        sprite_state->scale = 1.0f;
+        sprite_state->rotation = 0.0f;
+        sprite_state->tint = WHITE;
+
+        if (snprintf(sprite_state->texture_path, sizeof(sprite_state->texture_path), "%s", static_sprite_texture) >= (int)sizeof(sprite_state->texture_path)) {
+            static_sprite_component_dispose(sprite_state);
+            log_err("Static sprite texture path is too long for actor '%s'", actor_id);
+            return Err;
+        }
+
+        toml_datum_t transform = toml_get(actor_table, "Transform");
+        (void)read_xy_array(transform, "position", &sprite_state->position);
+        (void)read_xy_array(static_sprite_table, "position", &sprite_state->position);
+
+        toml_datum_t scale = toml_get(static_sprite_table, "scale");
+        float scale_value = 1.0f;
+        if (toml_number_to_float(scale, &scale_value) && scale_value > 0.0f)
+            sprite_state->scale = scale_value;
+
+        toml_datum_t rotation = toml_get(static_sprite_table, "rotation");
+        float rotation_value = 0.0f;
+        if (toml_number_to_float(rotation, &rotation_value))
+            sprite_state->rotation = rotation_value;
+
+        toml_datum_t tint = toml_get(static_sprite_table, "tint");
+        if (tint.type == TOML_ARRAY && tint.u.arr.size >= 4 &&
+            tint.u.arr.elem[0].type == TOML_INT64 && tint.u.arr.elem[1].type == TOML_INT64 &&
+            tint.u.arr.elem[2].type == TOML_INT64 && tint.u.arr.elem[3].type == TOML_INT64) {
+            sprite_state->tint = (Color){
+                (unsigned char)tint.u.arr.elem[0].u.int64,
+                (unsigned char)tint.u.arr.elem[1].u.int64,
+                (unsigned char)tint.u.arr.elem[2].u.int64,
+                (unsigned char)tint.u.arr.elem[3].u.int64,
+            };
+        }
+
+        ComponentDescriptor descriptor = {
+            .name = "StaticSprite",
+            .kind = ComponentBuiltin,
+            .initialize = static_sprite_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, sprite_state) != Ok) {
+            static_sprite_component_dispose(sprite_state);
+            log_err("Failed to add static sprite component to actor '%s'", actor_id);
             return Err;
         }
     }
@@ -519,6 +737,11 @@ result run_project_runtime(const char *project_path) {
         goto fail;
     scene_data_ok = True;
 
+    if (snprintf(runtime_state.project_root, sizeof(runtime_state.project_root), "%s", project_path) >= (int)sizeof(runtime_state.project_root)) {
+        log_err("Project path is too long: '%s'", project_path);
+        goto fail;
+    }
+
     runtime_state.dj_enabled = contains_autoload_actor_id(project_toml.toptab, "global_audio");
     if (runtime_state.dj_enabled) {
         runtime_state.dj = init_dj();
@@ -556,6 +779,7 @@ result run_project_runtime(const char *project_path) {
         runtime_state.dj_enabled = False;
     }
     runtime_state.active = False;
+    runtime_state.project_root[0] = '\0';
 
     if (scene_data_ok)
         toml_free(scene_data_toml);
@@ -578,6 +802,7 @@ fail:
             runtime_state.dj_enabled = False;
         }
         runtime_state.active = False;
+        runtime_state.project_root[0] = '\0';
     }
 
     if (scene_data_ok)

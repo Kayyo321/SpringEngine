@@ -39,6 +39,7 @@ Actors are Unity-style GameObjects:
 - An actor can have any number of components.
 - Components can be `builtin`, `script`, or `custom` kinds.
 - Component names map to runtime component constructors/handlers.
+- Builtin `StaticSprite` renders a texture every frame without animation (keys: `texture`, optional `position`, `scale`, `rotation`, `tint`).
 
 ### Identity and Validation
 
