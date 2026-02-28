@@ -23,9 +23,14 @@ TARGET := $(TEST_TARGET)
 endif
 OBJ := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRC))
 
-INCLUDE_DIRS := $(shell find $(SRCDIR) $(LIBDIR) -type d 2>/dev/null)
-CPPFLAGS += $(addprefix -I,$(INCLUDE_DIRS))
-CPPFLAGS += -I$(LUA_INCLUDE_DIR)
+SRC_INCLUDE_DIRS := $(shell find $(SRCDIR) -type d 2>/dev/null)
+LIB_INCLUDE_DIRS := \
+	$(LIBDIR)/raylib/include \
+	$(LIBDIR)/lua-5.4.6/src \
+	$(LIBDIR)/tomlc17/include
+
+CPPFLAGS += $(addprefix -I,$(SRC_INCLUDE_DIRS))
+CPPFLAGS += $(addprefix -I,$(LIB_INCLUDE_DIRS))
 
 ifeq ($(wildcard $(LUA_STATIC_LIB)),)
 $(error Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make macosx && mkdir -p lib && cp -f src/*.a lib/)

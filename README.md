@@ -67,6 +67,24 @@ SpringEngine aims for a Unity-style authoring model, with Lua as the primary scr
 
 - See `docs/config-system-vision.md` for the full `.conf`-driven architecture (project config, scenes, actor data, prefabs, and persistence model).
 
+## tomlc17 Setup
+
+- Installed library layout expected by this workspace:
+	- Headers: `lib/tomlc17/include/tomlc17.h`
+	- Static lib: `lib/tomlc17/lib/libtomlc17.a`
+- Build integration is automatic because the Makefile recursively includes all `lib/**` include directories and links all discovered static/shared libraries.
+- Runtime now uses tomlc17 in `src/config/project_config.c` to parse `example-project/springengine.conf` (`[Window]` table).
+
+### VS Code Integration
+
+- IntelliSense configs are in `.vscode/c_cpp_properties.json` with explicit `lib/tomlc17/include` paths.
+- Build/test tasks are in `.vscode/tasks.json`:
+	- `build` → `make`
+	- `test` → `make test`
+- Debug launch configs are in `.vscode/launch.json`:
+	- `Debug SpringEngine`
+	- `Debug SpringEngine Tests`
+
 ## C Project Build System
 
 Project layout:

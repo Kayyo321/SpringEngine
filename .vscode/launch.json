@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug SpringEngine",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/springengine",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "preLaunchTask": "build"
+    },
+    {
+      "name": "Debug SpringEngine Tests",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/bin/springengine-test",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb",
+      "preLaunchTask": "test"
+    }
+  ]
+}

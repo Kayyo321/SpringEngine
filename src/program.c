@@ -2,6 +2,7 @@
 #include "testing/testing.h"
 
 #include "actor/actor.h"
+#include "config/project_config.h"
 #include "windowman/windowman.h"
 
 void test_update(void) {
@@ -87,7 +88,12 @@ static result load_bootstrap_scene(ActorRegistry *registry) {
 
 void run_program(void) {
     ActorRegistry registry;
+    WindowConfig window_config = DefaultWindowConfig;
+
     actor_registry_init(&registry);
+
+    if (load_project_window_config("example-project/springengine.conf", &window_config) != Ok)
+        log_warn("Falling back to default window config.");
 
     if (load_bootstrap_scene(&registry) != Ok) {
         actor_registry_dispose(&registry);
@@ -95,7 +101,7 @@ void run_program(void) {
         return;
     }
 
-    open_window(DefaultWindowConfig);
+    open_window(window_config);
 
     do {
         //
