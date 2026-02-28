@@ -9,3 +9,40 @@
 [2026-02-28 11:57:34] Program executed in 0.00 seconds.
 [2026-02-28 11:57:34] Finished with 0 warnings and 0 errors.
 === Log closed at 2026-02-28 11:57:34 ===
+=== Log opened at 2026-02-28 12:37:41 ===
+[2026-02-28 12:37:41] SpringEngine-0.1.0 is starting
+[2026-02-28 12:37:41] Running allocator tests...
+[2026-02-28 12:37:41] Memory leak detected: 25 bytes at 0x104dd2ac0
+[2026-02-28 12:37:41] Allocator tests passed.
+[2026-02-28 12:37:41] Program executed in 0.00 seconds.
+[2026-02-28 12:37:41] Finished with 1 warnings and 0 errors.
+=== Log closed at 2026-02-28 12:37:41 ===
+=== Log opened at 2026-02-28 12:39:43 ===
+[2026-02-28 12:39:43] SpringEngine-0.1.0 is starting
+[2026-02-28 12:39:43] Running allocator tests...
+[2026-02-28 12:39:43] Memory leak detected: 25 bytes at 0x1035a2b00
+[2026-02-28 12:39:43] Allocator tests passed.
+[2026-02-28 12:39:43] Program executed in 0.00 seconds.
+[2026-02-28 12:39:43] Finished with 1 warnings and 0 errors.
+=== Log closed at 2026-02-28 12:39:43 ===
+=== Log opened at 2026-02-28 12:43:14 ===
+[2026-02-28 12:43:14] SpringEngine-0.1.0 is starting
+[2026-02-28 12:43:14] Running allocator tests...
+[2026-02-28 12:43:14] Memory leak detected: 25 bytes at 0x100f8eb00
+[2026-02-28 12:43:14] Allocator tests passed.
+[2026-02-28 12:43:14] Program executed in 0.00 seconds.
+[2026-02-28 12:43:14] Finished with 1 warnings and 0 errors.
+=== Log closed at 2026-02-28 12:43:14 ===
+=== Log opened at 2026-02-28 12:45:33 ===
+[2026-02-28 12:45:33] SpringEngine-0.1.0 is starting
+[2026-02-28 12:45:33] Running allocator tests...
+[2026-02-28 12:45:33] Memory leak detected: 25 bytes at 0x105456b00
+[2026-02-28 12:45:33] Allocator tests passed.
+[2026-02-28 12:45:33] Program executed in 0.00 seconds.
+[2026-02-28 12:45:33] Finished with 1 warnings and 0 errors.
+=== Log closed at 2026-02-28 12:45:33 ===
+=== Log opened at 2026-02-28 12:45:39 ===
+[2026-02-28 12:45:39] SpringEngine-0.1.0 is starting
+[2026-02-28 12:45:39] Program executed in 0.00 seconds.
+[2026-02-28 12:45:39] Finished with 0 warnings and 0 errors.
+=== Log closed at 2026-02-28 12:45:39 ===

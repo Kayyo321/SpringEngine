@@ -5,9 +5,9 @@
 #include "common.h"
 #include "program.h"
 
-static result spring_engine(void) {
+static void spring_engine(void) {
     if (open_logger() != Ok)
-        return Err;
+        quit(Err);
 
     log_msg("%s is starting", program.title);
 
@@ -22,12 +22,8 @@ static result spring_engine(void) {
     }
 
     log_msg("Finished with %lu warnings and %lu errors.", get_warn_count(), get_error_count());
-    close_logger();
-
-    if (get_error_count() > 0)
-        return Err;
-
-    return Ok;
+    
+    quit(get_error_count() > 0);
 }
 
 int main(int argc, char **argv) {
@@ -36,9 +32,6 @@ int main(int argc, char **argv) {
         .argc = argc,
         .argv = argv,
     };
-
-    const result res = spring_engine();
-    fprintf(stderr, "%s exited with code %d\n", program.title, res);
     
-    exit(res);
+    spring_engine();
 }
