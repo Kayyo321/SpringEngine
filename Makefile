@@ -15,7 +15,27 @@ OBJ := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRC))
 INCLUDE_DIRS := $(shell find $(SRCDIR) $(LIBDIR) -type d 2>/dev/null)
 CPPFLAGS += $(addprefix -I,$(INCLUDE_DIRS))
 
-LIB_FILES := $(shell find $(LIBDIR) -type f \( -name '*.a' -o -name '*.so' -o -name '*.dylib' \) 2>/dev/null)
+LIB_FILES := $(shell \
+	find $(LIBDIR) -type f \( -name '*.a' -o -name '*.dylib' -o -name '*.dylib.*' -o -name '*.so' -o -name '*.so.*' \) 2>/dev/null | sort | \
+	awk '{ \
+		path=$$0; \
+		base=path; sub(/^.*\//, "", base); \
+		name=base; sub(/^lib/, "", name); \
+		if (name ~ /\.a$$/) { \
+			type=1; sub(/\.a$$/, "", name); \
+		} else if (name ~ /\.so(\..*)?$$/) { \
+			type=2; sub(/\.so(\..*)?$$/, "", name); \
+		} else if (name ~ /\.dylib$$/) { \
+			type=3; sub(/\.dylib$$/, "", name); sub(/\.[0-9][0-9.]*$$/, "", name); \
+		} else { \
+			next; \
+		} \
+		if (!(name in best_type) || type < best_type[name]) { \
+			best_type[name]=type; best_path[name]=path; \
+		} \
+	} END { \
+		for (name in best_path) print best_path[name]; \
+	}' | sort)
 LDLIBS += $(LIB_FILES)
 
 .PHONY: all clean fclean re

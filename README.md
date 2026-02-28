@@ -7,7 +7,7 @@ A new idea for how video game engines should be.
 Project layout:
 
 - `src/` → C source and header files
-- `lib/` → prebuilt libraries (`.a`, `.so`, `.dylib`) to link (recursive)
+- `lib/` → prebuilt libraries (`.a`, `.so`, `.dylib`) to link (recursive, static-first)
 - `bin/` → build output binaries
 
 ### Commands

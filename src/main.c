@@ -1,6 +1,44 @@
+#include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 
-int main(void) {
-    printf("SpringEngine C project build is working.\n");
-    return 0;
+#include "common.h"
+#include "program.h"
+
+static result spring_engine(void) {
+    if (open_logger() != Ok)
+        return Err;
+
+    log_msg("%s is starting", program.title);
+
+    {
+        const time_t start_time = time(Null);
+
+        run_program();
+
+        const time_t end_time = time(Null);
+        const double elapsed = difftime(end_time, start_time);
+        log_msg("Program executed in %.2f seconds.", elapsed);
+    }
+
+    log_msg("Finished with %lu warnings and %lu errors.", get_warn_count(), get_error_count());
+    close_logger();
+
+    if (get_error_count() > 0)
+        return Err;
+
+    return Ok;
+}
+
+int main(int argc, char **argv) {
+    program = (Program) {
+        .title = "SpringEngine-" Version,
+        .argc = argc,
+        .argv = argv,
+    };
+
+    const result res = spring_engine();
+    fprintf(stderr, "%s exited with code %d\n", program.title, res);
+    
+    exit(res);
 }
