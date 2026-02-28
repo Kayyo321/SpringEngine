@@ -6,7 +6,6 @@
 #include "lualib.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #ifndef PATH_MAX
@@ -14,6 +13,7 @@
 #endif
 
 typedef struct {
+    Heap heap;
     char module_path[PATH_MAX];
     int table_ref;
     boolean has_awake;
@@ -114,15 +114,17 @@ void *script_component_state_create(const char *module_path) {
     if (!module_path || module_path[0] == '\0')
         return Null;
 
-    ScriptComponentState *state = (ScriptComponentState *)malloc(sizeof(ScriptComponentState));
+    Heap state_heap = allocate(1, sizeof(ScriptComponentState));
+    ScriptComponentState *state = (ScriptComponentState *)state_heap.pointer;
     if (!state)
         return Null;
 
     memset(state, 0, sizeof(*state));
+    state->heap = state_heap;
 
     if (snprintf(state->module_path, sizeof(state->module_path), "%s", module_path) >= (int)sizeof(state->module_path)) {
         log_err("Script module path is too long: '%s'", module_path);
-        free(state);
+        deallocate(state->heap);
         return Null;
     }
 
@@ -134,7 +136,9 @@ void script_component_state_dispose(void *state_ptr) {
     if (!state_ptr)
         return;
 
-    free(state_ptr);
+    ScriptComponentState *state = (ScriptComponentState *)state_ptr;
+    if (state->heap.pointer)
+        deallocate(state->heap);
 }
 
 result script_component_initialize(Actor *actor, ActorComponent *component, void *context) {

@@ -10,6 +10,8 @@ BINDIR := bin
 TARGET ?= $(BINDIR)/springengine
 TEST_TARGET := $(BINDIR)/springengine-test
 
+BUILD_OBJDIR := $(OBJDIR)
+
 LUA_DIR := $(LIBDIR)/lua-5.4.6
 LUA_INCLUDE_DIR := $(LUA_DIR)/src
 LUA_STATIC_LIB := $(LUA_DIR)/lib/liblua.a
@@ -23,8 +25,9 @@ SRC := $(filter-out $(TEST_SRC),$(ALL_SRC))
 ifneq (,$(filter test,$(MAKECMDGOALS)))
 SRC += $(TEST_SRC)
 TARGET := $(TEST_TARGET)
+BUILD_OBJDIR := $(OBJDIR)/test
 endif
-OBJ := $(patsubst $(SRCDIR)/%.c,$(OBJDIR)/%.o,$(SRC))
+OBJ := $(patsubst $(SRCDIR)/%.c,$(BUILD_OBJDIR)/%.o,$(SRC))
 
 SRC_INCLUDE_DIRS := $(shell find $(SRCDIR) -type d 2>/dev/null)
 LIB_INCLUDE_DIRS := \
@@ -86,7 +89,7 @@ $(TARGET): $(OBJ) $(TOMLC17_STATIC_LIB) | $(BINDIR)
 $(TOMLC17_STATIC_LIB):
 	@$(MAKE) -C $(TOMLC17_DIR) clean install prefix=./
 
-$(OBJDIR)/%.o: $(SRCDIR)/%.c
+$(BUILD_OBJDIR)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
