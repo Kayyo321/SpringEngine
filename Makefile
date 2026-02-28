@@ -13,6 +13,9 @@ TEST_TARGET := $(BINDIR)/springengine-test
 LUA_DIR := $(LIBDIR)/lua-5.4.6
 LUA_INCLUDE_DIR := $(LUA_DIR)/src
 LUA_STATIC_LIB := $(LUA_DIR)/lib/liblua.a
+TOMLC17_DIR := $(LIBDIR)/tomlc17
+TOMLC17_INCLUDE_DIR := $(TOMLC17_DIR)/include
+TOMLC17_STATIC_LIB := $(TOMLC17_DIR)/lib/libtomlc17.a
 
 ALL_SRC := $(shell find $(SRCDIR) -type f -name '*.c')
 TEST_SRC := $(shell find $(SRCDIR)/testing -type f -name '*.c' 2>/dev/null)
@@ -34,6 +37,10 @@ CPPFLAGS += $(addprefix -I,$(LIB_INCLUDE_DIRS))
 
 ifeq ($(wildcard $(LUA_STATIC_LIB)),)
 $(error Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make macosx && mkdir -p lib && cp -f src/*.a lib/)
+endif
+
+ifeq ($(wildcard $(TOMLC17_DIR)/include/tomlc17.h),)
+$(error Missing tomlc17 headers at $(TOMLC17_DIR)/include/tomlc17.h. Ensure lib/tomlc17 is present.)
 endif
 
 LIB_FILES := $(shell \
@@ -58,8 +65,10 @@ LIB_FILES := $(shell \
 		for (name in best_path) print best_path[name]; \
 	}' | sort)
 LIB_FILES := $(filter-out $(LUA_STATIC_LIB),$(LIB_FILES))
+LIB_FILES := $(filter-out $(TOMLC17_STATIC_LIB),$(LIB_FILES))
 LDLIBS += $(LIB_FILES)
 LDLIBS += $(LUA_STATIC_LIB)
+LDLIBS += $(TOMLC17_STATIC_LIB)
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -71,8 +80,11 @@ endif
 
 all: $(TARGET)
 
-$(TARGET): $(OBJ) | $(BINDIR)
+$(TARGET): $(OBJ) $(TOMLC17_STATIC_LIB) | $(BINDIR)
 	$(CC) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@
+
+$(TOMLC17_STATIC_LIB):
+	@$(MAKE) -C $(TOMLC17_DIR) clean install prefix=./
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
