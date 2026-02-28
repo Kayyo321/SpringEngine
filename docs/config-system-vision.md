@@ -34,12 +34,15 @@ Actors are an array-of-tables (`[[Actors]]`), each with:
 - `Components.*` (component payload tables)
 - `Overrides.*` (only used when `prefab` is set)
 
+`Transform.anchor` is optional and supports either `[x, y]` (manual anchor offset in sprite pixels) or `"center"`.
+Default anchor behavior is top-left (`[0, 0]`).
+
 Actors are Unity-style GameObjects:
 
 - An actor can have any number of components.
 - Components can be `builtin`, `script`, or `custom` kinds.
 - Component names map to runtime component constructors/handlers.
-- Builtin `StaticSprite` renders a texture every frame without animation (keys: `texture`, optional `position`, `scale`, `rotation`, `tint`).
+- Builtin `StaticSprite` renders a texture every frame without animation (keys: `texture`, optional `position`, `scale`, `rotation`, `tint`); when present, `Transform.anchor` controls sprite draw origin.
 
 ### Identity and Validation
 

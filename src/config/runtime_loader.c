@@ -20,9 +20,15 @@
 #endif
 
 typedef struct {
+    boolean center;
+    Vector2 offset;
+} SpriteAnchor;
+
+typedef struct {
     char texture_path[PATH_MAX];
     char resolved_texture_path[PATH_MAX];
     Vector2 position;
+    SpriteAnchor anchor;
     float scale;
     float rotation;
     Color tint;
@@ -44,6 +50,7 @@ typedef struct {
 static RuntimeState runtime_state;
 
 static result join_path(const char *base, const char *path, char *out_path, usize out_size);
+static result parse_toml_file(const char *path, toml_result_t *out_parsed);
 
 static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     if (!out_number)
@@ -78,6 +85,117 @@ static result read_xy_array(toml_datum_t table, const char *key, Vector2 *out_po
     out_position->x = x;
     out_position->y = y;
     return Ok;
+}
+
+static result read_transform_anchor(toml_datum_t transform_table, SpriteAnchor *out_anchor) {
+    if (!out_anchor)
+        return Err;
+
+    out_anchor->center = False;
+    out_anchor->offset = (Vector2){0.0f, 0.0f};
+
+    if (transform_table.type != TOML_TABLE)
+        return Ok;
+
+    toml_datum_t anchor = toml_get(transform_table, "anchor");
+    if (anchor.type == TOML_ARRAY) {
+        if (anchor.u.arr.size < 2)
+            return Err;
+
+        float x = 0.0f;
+        float y = 0.0f;
+        if (!toml_number_to_float(anchor.u.arr.elem[0], &x) || !toml_number_to_float(anchor.u.arr.elem[1], &y))
+            return Err;
+
+        out_anchor->offset = (Vector2){x, y};
+        return Ok;
+    }
+
+    if (anchor.type == TOML_STRING) {
+        if (anchor.u.s && strcmp(anchor.u.s, "center") == 0) {
+            out_anchor->center = True;
+            return Ok;
+        }
+
+        return Err;
+    }
+
+    if (anchor.type != TOML_UNKNOWN)
+        return Err;
+
+    return Ok;
+}
+
+static boolean has_transform_anchor(toml_datum_t transform_table) {
+    if (transform_table.type != TOML_TABLE)
+        return False;
+
+    toml_datum_t anchor = toml_get(transform_table, "anchor");
+    return anchor.type != TOML_UNKNOWN;
+}
+
+static result read_prefab_transform_anchor(toml_datum_t actor_table, toml_datum_t prefab_refs, const char *prefabs_root, SpriteAnchor *out_anchor) {
+    if (!out_anchor)
+        return Err;
+
+    if (actor_table.type != TOML_TABLE || prefab_refs.type != TOML_TABLE || !prefabs_root)
+        return Ok;
+
+    toml_datum_t prefab = toml_get(actor_table, "prefab");
+    if (prefab.type != TOML_STRING || !prefab.u.s || prefab.u.s[0] == '\0')
+        return Ok;
+
+    toml_datum_t prefab_path_ref = toml_get(prefab_refs, prefab.u.s);
+    if (prefab_path_ref.type != TOML_STRING || !prefab_path_ref.u.s || prefab_path_ref.u.s[0] == '\0')
+        return Ok;
+
+    char prefab_path[PATH_MAX] = {0};
+    char prefab_path_from_project_root[PATH_MAX] = {0};
+
+    if (join_path(prefabs_root, prefab_path_ref.u.s, prefab_path, sizeof(prefab_path)) != Ok)
+        return Err;
+
+    if (access(prefab_path, F_OK) != 0) {
+        if (!runtime_state.project_root[0])
+            return Err;
+
+        if (join_path(runtime_state.project_root, prefab_path_ref.u.s, prefab_path_from_project_root, sizeof(prefab_path_from_project_root)) != Ok)
+            return Err;
+
+        if (access(prefab_path_from_project_root, F_OK) != 0)
+            return Err;
+
+        if (snprintf(prefab_path, sizeof(prefab_path), "%s", prefab_path_from_project_root) >= (int)sizeof(prefab_path))
+            return Err;
+    }
+
+    toml_result_t prefab_toml = {0};
+    if (parse_toml_file(prefab_path, &prefab_toml) != Ok)
+        return Err;
+
+    toml_datum_t prefab_table = toml_get(prefab_toml.toptab, "Prefab");
+    toml_datum_t prefab_transform = toml_get(prefab_table, "Transform");
+
+    result read_result = Ok;
+    if (has_transform_anchor(prefab_transform))
+        read_result = read_transform_anchor(prefab_transform, out_anchor);
+
+    toml_free(prefab_toml);
+    return read_result;
+}
+
+static result read_actor_transform_anchor(toml_datum_t actor_table, toml_datum_t prefab_refs, const char *prefabs_root, SpriteAnchor *out_anchor) {
+    if (!out_anchor)
+        return Err;
+
+    out_anchor->center = False;
+    out_anchor->offset = (Vector2){0.0f, 0.0f};
+
+    toml_datum_t transform = toml_get(actor_table, "Transform");
+    if (has_transform_anchor(transform))
+        return read_transform_anchor(transform, out_anchor);
+
+    return read_prefab_transform_anchor(actor_table, prefab_refs, prefabs_root, out_anchor);
 }
 
 static const char *find_static_sprite_texture(toml_datum_t actor_table, toml_datum_t *out_static_sprite_table) {
@@ -158,7 +276,31 @@ static void static_sprite_component_draw(StaticSpriteState *state) {
         state->loaded = True;
     }
 
-    DrawTextureEx(state->texture, state->position, state->rotation, state->scale, state->tint);
+    Rectangle source = {
+        0.0f,
+        0.0f,
+        (float)state->texture.width,
+        (float)state->texture.height,
+    };
+
+    Rectangle destination = {
+        state->position.x,
+        state->position.y,
+        (float)state->texture.width * state->scale,
+        (float)state->texture.height * state->scale,
+    };
+
+    Vector2 anchor = {
+        state->anchor.offset.x * state->scale,
+        state->anchor.offset.y * state->scale,
+    };
+
+    if (state->anchor.center) {
+        anchor.x = destination.width * 0.5f;
+        anchor.y = destination.height * 0.5f;
+    }
+
+    DrawTexturePro(state->texture, source, destination, anchor, state->rotation, state->tint);
 }
 
 static void static_sprite_component_dispose(StaticSpriteState *state) {
@@ -422,7 +564,7 @@ static boolean read_actor_enabled(toml_datum_t actor_table) {
     return True;
 }
 
-static result instantiate_actor_from_table(const char *actor_id, toml_datum_t actor_table, const char *success_log_label) {
+static result instantiate_actor_from_table(const char *actor_id, toml_datum_t actor_table, toml_datum_t prefab_refs, const char *prefabs_root, const char *success_log_label) {
     if (!actor_id || !success_log_label || actor_table.type != TOML_TABLE)
         return Err;
 
@@ -467,6 +609,10 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         memset(sprite_state, 0, sizeof(*sprite_state));
         sprite_state->heap = sprite_heap;
         sprite_state->position = (Vector2){0.0f, 0.0f};
+        sprite_state->anchor = (SpriteAnchor){
+            .center = False,
+            .offset = (Vector2){0.0f, 0.0f},
+        };
         sprite_state->scale = 1.0f;
         sprite_state->rotation = 0.0f;
         sprite_state->tint = WHITE;
@@ -479,6 +625,11 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
 
         toml_datum_t transform = toml_get(actor_table, "Transform");
         (void)read_xy_array(transform, "position", &sprite_state->position);
+        if (read_actor_transform_anchor(actor_table, prefab_refs, prefabs_root, &sprite_state->anchor) != Ok) {
+            static_sprite_component_dispose(sprite_state);
+            log_err("Actor '%s' has invalid Transform.anchor; expected [x, y] or \"center\" (actor or prefab Transform)", actor_id);
+            return Err;
+        }
         (void)read_xy_array(static_sprite_table, "position", &sprite_state->position);
 
         toml_datum_t scale = toml_get(static_sprite_table, "scale");
@@ -556,14 +707,14 @@ static result load_autoload_actors(toml_datum_t project_toptab, toml_datum_t aut
             return Err;
         }
 
-        if (instantiate_actor_from_table(actor_id.u.s, actor_table, "Instantiated autoload actor") != Ok)
+        if (instantiate_actor_from_table(actor_id.u.s, actor_table, (toml_datum_t){0}, Null, "Instantiated autoload actor") != Ok)
             return Err;
     }
 
     return Ok;
 }
 
-static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab) {
+static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab, const char *prefabs_root) {
     toml_datum_t scene_table = toml_get(scene_toptab, "Scene");
     if (scene_table.type != TOML_TABLE) {
         log_err("Scene manifest is missing [Scene] table");
@@ -588,6 +739,8 @@ static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_top
         return Err;
     }
 
+    toml_datum_t prefab_refs = toml_get(data_toptab, "PrefabRefs");
+
     for (int index = 0; index < scene_actor_ids.u.arr.size; ++index) {
         toml_datum_t actor_id = scene_actor_ids.u.arr.elem[index];
         if (actor_id.type != TOML_STRING || !actor_id.u.s || actor_id.u.s[0] == '\0') {
@@ -601,7 +754,7 @@ static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_top
             return Err;
         }
 
-        if (instantiate_actor_from_table(actor_id.u.s, actor_table, "Instantiated actor") != Ok)
+        if (instantiate_actor_from_table(actor_id.u.s, actor_table, prefab_refs, prefabs_root, "Instantiated actor") != Ok)
             return Err;
     }
 
@@ -673,7 +826,12 @@ result run_project_runtime(const char *project_path) {
     }
 
     char scenes_root[PATH_MAX] = {0};
+    char prefabs_root[PATH_MAX] = {0};
     if (snprintf(scenes_root, sizeof(scenes_root), "%s", project_path) >= (int)sizeof(scenes_root)) {
+        log_err("Project path is too long: '%s'", project_path);
+        goto fail;
+    }
+    if (snprintf(prefabs_root, sizeof(prefabs_root), "%s", project_path) >= (int)sizeof(prefabs_root)) {
         log_err("Project path is too long: '%s'", project_path);
         goto fail;
     }
@@ -684,6 +842,14 @@ result run_project_runtime(const char *project_path) {
         if (scenes_dir.type == TOML_STRING && scenes_dir.u.s && scenes_dir.u.s[0] != '\0') {
             if (join_path(project_path, scenes_dir.u.s, scenes_root, sizeof(scenes_root)) != Ok) {
                 log_err("Failed to resolve Paths.scenes_dir from '%s'", springengine_config_path);
+                goto fail;
+            }
+        }
+
+        toml_datum_t prefabs_dir = toml_get(paths_table, "prefabs_dir");
+        if (prefabs_dir.type == TOML_STRING && prefabs_dir.u.s && prefabs_dir.u.s[0] != '\0') {
+            if (join_path(project_path, prefabs_dir.u.s, prefabs_root, sizeof(prefabs_root)) != Ok) {
+                log_err("Failed to resolve Paths.prefabs_dir from '%s'", springengine_config_path);
                 goto fail;
             }
         }
@@ -756,7 +922,7 @@ result run_project_runtime(const char *project_path) {
     if (load_autoload_actors(project_toml.toptab, autoload_toml.toptab) != Ok)
         goto fail;
 
-    if (load_scene_actors(scene_toml.toptab, scene_data_toml.toptab) != Ok)
+    if (load_scene_actors(scene_toml.toptab, scene_data_toml.toptab, prefabs_root) != Ok)
         goto fail;
 
     log_msg("Loaded project config '%s'", springengine_config_path);
