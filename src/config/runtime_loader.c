@@ -485,11 +485,53 @@ static void frame_update(void) {
             ActorComponent *component = &actor->components[component_index];
             if (component->descriptor.kind == ComponentScript)
                 script_component_update(actor, component, &runtime_state.script_runtime);
+        }
+    }
+
+    usize enabled_actor_count = 0;
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (actor->enabled)
+            ++enabled_actor_count;
+    }
+
+    if (enabled_actor_count == 0)
+        return;
+
+    Heap draw_order_heap = allocate(enabled_actor_count, sizeof(Actor *));
+    Actor **draw_order = (Actor **)draw_order_heap.pointer;
+    if (!draw_order)
+        return;
+
+    usize draw_order_index = 0;
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (actor->enabled)
+            draw_order[draw_order_index++] = actor;
+    }
+
+    for (usize index = 1; index < draw_order_index; ++index) {
+        Actor *candidate = draw_order[index];
+        usize insertion_index = index;
+        while (insertion_index > 0 && draw_order[insertion_index - 1]->layer > candidate->layer) {
+            draw_order[insertion_index] = draw_order[insertion_index - 1];
+            --insertion_index;
+        }
+
+        draw_order[insertion_index] = candidate;
+    }
+
+    for (usize index = 0; index < draw_order_index; ++index) {
+        Actor *actor = draw_order[index];
+        for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+            ActorComponent *component = &actor->components[component_index];
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
                 static_sprite_component_draw((StaticSpriteState *)component->data);
         }
     }
+
+    deallocate(draw_order_heap);
 }
 
 static void dispose_runtime_components(void) {
@@ -564,11 +606,25 @@ static boolean read_actor_enabled(toml_datum_t actor_table) {
     return True;
 }
 
+static int read_actor_layer(toml_datum_t actor_table) {
+    toml_datum_t layer = toml_get(actor_table, "layer");
+    if (layer.type != TOML_INT64)
+        return 0;
+
+    if (layer.u.int64 > INT_MAX)
+        return INT_MAX;
+
+    if (layer.u.int64 < INT_MIN)
+        return INT_MIN;
+
+    return (int)layer.u.int64;
+}
+
 static result instantiate_actor_from_table(const char *actor_id, toml_datum_t actor_table, toml_datum_t prefab_refs, const char *prefabs_root, const char *success_log_label) {
     if (!actor_id || !success_log_label || actor_table.type != TOML_TABLE)
         return Err;
 
-    Actor *actor = actor_registry_create_actor(&runtime_state.actor_registry, (char *)actor_id, read_actor_enabled(actor_table));
+    Actor *actor = actor_registry_create_actor(&runtime_state.actor_registry, (char *)actor_id, read_actor_enabled(actor_table), read_actor_layer(actor_table));
     if (!actor) {
         log_err("Failed to create actor '%s'", actor_id);
         return Err;

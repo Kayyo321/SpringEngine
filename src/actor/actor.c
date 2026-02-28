@@ -27,12 +27,13 @@ static result ensure_actor_component_capacity(Actor *actor, usize required_capac
     return Ok;
 }
 
-void actor_init(Actor *actor, char *id, boolean enabled) {
+void actor_init(Actor *actor, char *id, boolean enabled, int layer) {
     if (!actor)
         return;
 
     actor->id = id;
     actor->enabled = enabled;
+    actor->layer = layer;
     actor->components_heap = NullHeap;
     actor->components = Null;
     actor->component_count = 0;
@@ -143,7 +144,7 @@ void actor_registry_dispose(ActorRegistry *registry) {
     registry->actor_capacity = 0;
 }
 
-Actor *actor_registry_create_actor(ActorRegistry *registry, char *id, boolean enabled) {
+Actor *actor_registry_create_actor(ActorRegistry *registry, char *id, boolean enabled, int layer) {
     if (!registry || !id)
         return Null;
 
@@ -151,7 +152,7 @@ Actor *actor_registry_create_actor(ActorRegistry *registry, char *id, boolean en
         return Null;
 
     Actor *actor = &registry->actors[registry->actor_count++];
-    actor_init(actor, id, enabled);
+    actor_init(actor, id, enabled, layer);
 
     return actor;
 }
@@ -162,7 +163,7 @@ result actor_registry_load_actors(ActorRegistry *registry, const ActorLoadSpec *
 
     for (usize spec_index = 0; spec_index < spec_count; ++spec_index) {
         const ActorLoadSpec *spec = &specs[spec_index];
-        Actor *actor = actor_registry_create_actor(registry, spec->id, spec->enabled);
+        Actor *actor = actor_registry_create_actor(registry, spec->id, spec->enabled, spec->layer);
 
         if (!actor) {
             log_err("Failed to allocate actor '%s'", spec->id ? spec->id : "<unknown>");

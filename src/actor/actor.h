@@ -29,6 +29,7 @@ struct ActorComponent {
 struct Actor {
     char *id;
     boolean enabled;
+    int layer;
 
     Heap components_heap;
     ActorComponent *components;
@@ -44,6 +45,7 @@ typedef struct {
 typedef struct {
     char *id;
     boolean enabled;
+    int layer;
     const ActorLoadComponent *components;
     usize component_count;
 } ActorLoadSpec;
@@ -55,7 +57,7 @@ typedef struct {
     usize actor_capacity;
 } ActorRegistry;
 
-void actor_init(Actor *actor, char *id, boolean enabled);
+void actor_init(Actor *actor, char *id, boolean enabled, int layer);
 void actor_dispose(Actor *actor);
 
 result actor_add_component(Actor *actor, ComponentDescriptor descriptor, void *data);
@@ -63,7 +65,7 @@ result actor_initialize_components(Actor *actor);
 
 void actor_registry_init(ActorRegistry *registry);
 void actor_registry_dispose(ActorRegistry *registry);
-Actor *actor_registry_create_actor(ActorRegistry *registry, char *id, boolean enabled);
+Actor *actor_registry_create_actor(ActorRegistry *registry, char *id, boolean enabled, int layer);
 result actor_registry_load_actors(ActorRegistry *registry, const ActorLoadSpec *specs, usize spec_count);
 
 const char *component_kind_name(ComponentKind kind);

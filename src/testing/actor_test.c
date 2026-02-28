@@ -72,6 +72,7 @@ void run_actor_tests(void) {
         {
             .id = "player",
             .enabled = True,
+            .layer = 4,
             .components = actor_components,
             .component_count = sizeof(actor_components) / sizeof(actor_components[0]),
         },
@@ -89,6 +90,11 @@ void run_actor_tests(void) {
 
     if (registry.actors[0].component_count != 3) {
         log_err("loaded actor should preserve all components");
+        ++failed;
+    }
+
+    if (registry.actors[0].layer != 4) {
+        log_err("loaded actor should preserve layer");
         ++failed;
     }
 
