@@ -240,6 +240,84 @@ static boolean read_actor_enabled(toml_datum_t actor_table) {
     return True;
 }
 
+static result instantiate_actor_from_table(const char *actor_id, toml_datum_t actor_table, const char *success_log_label) {
+    if (!actor_id || !success_log_label || actor_table.type != TOML_TABLE)
+        return Err;
+
+    Actor *actor = actor_registry_create_actor(&runtime_state.actor_registry, (char *)actor_id, read_actor_enabled(actor_table));
+    if (!actor) {
+        log_err("Failed to create actor '%s'", actor_id);
+        return Err;
+    }
+
+    const char *module = find_script_module(actor_table);
+    if (module) {
+        void *script_state = script_component_state_create(module);
+        if (!script_state) {
+            log_err("Failed to create script state for actor '%s' (module '%s')", actor_id, module);
+            return Err;
+        }
+
+        ComponentDescriptor descriptor = {
+            .name = (char *)module,
+            .kind = ComponentScript,
+            .initialize = script_component_initialize,
+            .context = &runtime_state.script_runtime,
+        };
+
+        if (actor_add_component(actor, descriptor, script_state) != Ok) {
+            script_component_state_dispose(script_state);
+            log_err("Failed to add script component '%s' to actor '%s'", module, actor_id);
+            return Err;
+        }
+    }
+
+    if (actor_initialize_components(actor) != Ok)
+        return Err;
+
+    log_msg("%s '%s'", success_log_label, actor_id);
+    return Ok;
+}
+
+static result load_autoload_actors(toml_datum_t project_toptab, toml_datum_t autoload_toptab) {
+    toml_datum_t persistence = toml_get(project_toptab, "Persistence");
+    if (persistence.type != TOML_TABLE) {
+        log_warn("Config is missing [Persistence] table; skipping autoload actors");
+        return Ok;
+    }
+
+    toml_datum_t autoload_actor_ids = toml_get(persistence, "autoload_actor_ids");
+    if (autoload_actor_ids.type != TOML_ARRAY) {
+        log_warn("Config is missing Persistence.autoload_actor_ids array; skipping autoload actors");
+        return Ok;
+    }
+
+    toml_datum_t data_actors = toml_get(autoload_toptab, "Actors");
+    if (data_actors.type != TOML_ARRAY) {
+        log_err("Autoload data is missing [[Actors]] array");
+        return Err;
+    }
+
+    for (int index = 0; index < autoload_actor_ids.u.arr.size; ++index) {
+        toml_datum_t actor_id = autoload_actor_ids.u.arr.elem[index];
+        if (actor_id.type != TOML_STRING || !actor_id.u.s || actor_id.u.s[0] == '\0') {
+            log_err("Persistence.autoload_actor_ids[%d] must be a non-empty string", index);
+            return Err;
+        }
+
+        toml_datum_t actor_table = {0};
+        if (find_actor_table_by_id(data_actors, actor_id.u.s, &actor_table) != Ok) {
+            log_err("Autoload actor '%s' listed in Persistence.autoload_actor_ids was not found in autoload data", actor_id.u.s);
+            return Err;
+        }
+
+        if (instantiate_actor_from_table(actor_id.u.s, actor_table, "Instantiated autoload actor") != Ok)
+            return Err;
+    }
+
+    return Ok;
+}
+
 static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab) {
     toml_datum_t scene_table = toml_get(scene_toptab, "Scene");
     if (scene_table.type != TOML_TABLE) {
@@ -278,38 +356,8 @@ static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_top
             return Err;
         }
 
-        Actor *actor = actor_registry_create_actor(&runtime_state.actor_registry, (char *)actor_id.u.s, read_actor_enabled(actor_table));
-        if (!actor) {
-            log_err("Failed to create actor '%s'", actor_id.u.s);
+        if (instantiate_actor_from_table(actor_id.u.s, actor_table, "Instantiated actor") != Ok)
             return Err;
-        }
-
-        const char *module = find_script_module(actor_table);
-        if (module) {
-            void *script_state = script_component_state_create(module);
-            if (!script_state) {
-                log_err("Failed to create script state for actor '%s' (module '%s')", actor_id.u.s, module);
-                return Err;
-            }
-
-            ComponentDescriptor descriptor = {
-                .name = (char *)module,
-                .kind = ComponentScript,
-                .initialize = script_component_initialize,
-                .context = &runtime_state.script_runtime,
-            };
-
-            if (actor_add_component(actor, descriptor, script_state) != Ok) {
-                script_component_state_dispose(script_state);
-                log_err("Failed to add script component '%s' to actor '%s'", module, actor_id.u.s);
-                return Err;
-            }
-        }
-
-        if (actor_initialize_components(actor) != Ok)
-            return Err;
-
-        log_msg("Instantiated actor '%s'", actor_id.u.s);
     }
 
     return Ok;
@@ -317,9 +365,11 @@ static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_top
 
 result run_project_runtime(const char *project_path) {
     toml_result_t project_toml = {0};
+    toml_result_t autoload_toml = {0};
     toml_result_t scene_toml = {0};
     toml_result_t scene_data_toml = {0};
     boolean project_ok = False;
+    boolean autoload_ok = False;
     boolean scene_ok = False;
     boolean scene_data_ok = False;
 
@@ -400,10 +450,9 @@ result run_project_runtime(const char *project_path) {
         goto fail;
     }
 
-    toml_result_t autoload_toml = {0};
     if (parse_toml_file(autoload_path, &autoload_toml) != Ok)
         goto fail;
-    toml_free(autoload_toml);
+    autoload_ok = True;
 
     char first_scene_path[PATH_MAX] = {0};
     if (join_path(scenes_root, first_scene.u.s, first_scene_path, sizeof(first_scene_path)) != Ok) {
@@ -449,6 +498,9 @@ result run_project_runtime(const char *project_path) {
 
     runtime_state.active = True;
 
+    if (load_autoload_actors(project_toml.toptab, autoload_toml.toptab) != Ok)
+        goto fail;
+
     if (load_scene_actors(scene_toml.toptab, scene_data_toml.toptab) != Ok)
         goto fail;
 
@@ -473,6 +525,8 @@ result run_project_runtime(const char *project_path) {
         toml_free(scene_data_toml);
     if (scene_ok)
         toml_free(scene_toml);
+    if (autoload_ok)
+        toml_free(autoload_toml);
     if (project_ok)
         toml_free(project_toml);
 
@@ -490,6 +544,8 @@ fail:
         toml_free(scene_data_toml);
     if (scene_ok)
         toml_free(scene_toml);
+    if (autoload_ok)
+        toml_free(autoload_toml);
     if (project_ok)
         toml_free(project_toml);
 
