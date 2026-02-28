@@ -4,7 +4,21 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stddef.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+enum {
+    LogMaxIndex = 10,
+};
+
+static const char *LogDirectory = "logs";
+static const char *LogIndexFile = "logs/.next";
 
 enum {
     LogFlagNone = 0,
@@ -24,6 +38,7 @@ Program program;
 const Heap NullHeap = {.pointer = Null, .size = 0, .priv = Null};
 
 static FILE *log_file = Null;
+static char current_log_path[PATH_MAX] = {0};
 
 static usize error_cnt = 0;
 static usize warn_cnt = 0;
@@ -31,8 +46,80 @@ static usize warn_cnt = 0;
 static HeapList *heap_list_head = Null;
 static HeapList *heap_list_last = Null;
 
-static char *log_path(void) {
-    return "springengine.log";
+static result ensure_log_directory(void) {
+    struct stat path_stat = {0};
+    if (stat(LogDirectory, &path_stat) == 0) {
+        if (S_ISDIR(path_stat.st_mode))
+            return Ok;
+
+        fprintf(stderr, "Log path '%s' exists but is not a directory\n", LogDirectory);
+        return Err;
+    }
+
+    if (mkdir(LogDirectory, 0755) != 0) {
+        fprintf(stderr, "Failed to create log directory '%s': %s\n", LogDirectory, strerror(errno));
+        return Err;
+    }
+
+    return Ok;
+}
+
+static int read_next_log_index(void) {
+    FILE *index_file = fopen(LogIndexFile, "r");
+    if (!index_file)
+        return 0;
+
+    int next_index = 0;
+    if (fscanf(index_file, "%d", &next_index) != 1)
+        next_index = 0;
+
+    fclose(index_file);
+
+    if (next_index < 0 || next_index > LogMaxIndex)
+        next_index = 0;
+
+    return next_index;
+}
+
+static result write_next_log_index(int next_index) {
+    FILE *index_file = fopen(LogIndexFile, "w");
+    if (!index_file) {
+        fprintf(stderr, "Failed to write log index file '%s': %s\n", LogIndexFile, strerror(errno));
+        return Err;
+    }
+
+    if (fprintf(index_file, "%d\n", next_index) < 0) {
+        fclose(index_file);
+        fprintf(stderr, "Failed to update log index file '%s'\n", LogIndexFile);
+        return Err;
+    }
+
+    fclose(index_file);
+    return Ok;
+}
+
+static result prepare_log_path(void) {
+    if (ensure_log_directory() != Ok)
+        return Err;
+
+    const int current_index = read_next_log_index();
+    const int next_index = (current_index + 1) % (LogMaxIndex + 1);
+
+    if (snprintf(current_log_path, sizeof(current_log_path), "%s/log%d", LogDirectory, current_index) >= (int)sizeof(current_log_path)) {
+        fprintf(stderr, "Log path is too long\n");
+        return Err;
+    }
+
+    if (remove(current_log_path) != 0 && errno != ENOENT) {
+        fprintf(stderr, "Failed to remove previous log '%s': %s\n", current_log_path, strerror(errno));
+        return Err;
+    }
+
+    return write_next_log_index(next_index);
+}
+
+static const char *log_path(void) {
+    return current_log_path;
 }
 
 static void timestamp(char *buffer, size_t buf_size) {
@@ -51,8 +138,10 @@ void quit(result res) {
     exit(res);
 }
 
-result open_logger(void)
-{
+result open_logger(void) {
+    if (prepare_log_path() != Ok)
+        return Err;
+
     log_file = fopen(log_path(), "a");
     if (!log_file) {
         fprintf(stderr, "Failed to open log file: %s\n", log_path());

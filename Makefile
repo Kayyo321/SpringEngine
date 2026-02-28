@@ -96,6 +96,7 @@ $(BINDIR):
 clean:
 	@find . -type f -name '*.o' -delete
 	@find $(OBJDIR) -type d -empty -delete 2>/dev/null || true
+	@rm -rf logs
 
 fclean: clean
 	@rm -f $(BINDIR)/springengine $(TEST_TARGET)
