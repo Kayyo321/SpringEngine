@@ -1,6 +1,8 @@
 #include "runtime_loader.h"
 
+#include "actor/actor.h"
 #include "project_config.h"
+#include "script/script_runtime.h"
 #include "windowman/windowman.h"
 
 #include "tomlc17.h"
@@ -16,7 +18,13 @@
 #define PATH_MAX 4096
 #endif
 
-static void frame_update(void) {}
+typedef struct {
+    ActorRegistry actor_registry;
+    ScriptRuntime script_runtime;
+    boolean active;
+} RuntimeState;
+
+static RuntimeState runtime_state;
 
 static boolean has_conf_extension(const char *file_name) {
     if (!file_name)
@@ -148,7 +156,173 @@ static result validate_conf_files(const char *directory_path, usize *out_conf_co
     return Ok;
 }
 
+static void frame_update(void) {
+    if (!runtime_state.active)
+        return;
+
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+
+        for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+            ActorComponent *component = &actor->components[component_index];
+            if (component->descriptor.kind == ComponentScript)
+                script_component_update(actor, component, &runtime_state.script_runtime);
+        }
+    }
+}
+
+static void dispose_runtime_components(void) {
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+
+        for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+            ActorComponent *component = &actor->components[component_index];
+            if (component->descriptor.kind == ComponentScript)
+                script_component_destroy(actor, component, &runtime_state.script_runtime);
+        }
+    }
+}
+
+static result find_actor_table_by_id(toml_datum_t actors_array, const char *actor_id, toml_datum_t *out_actor_table) {
+    if (actors_array.type != TOML_ARRAY || !actor_id || !out_actor_table)
+        return Err;
+
+    for (int index = 0; index < actors_array.u.arr.size; ++index) {
+        toml_datum_t actor_table = actors_array.u.arr.elem[index];
+        if (actor_table.type != TOML_TABLE)
+            continue;
+
+        toml_datum_t id = toml_get(actor_table, "id");
+        if (id.type == TOML_STRING && id.u.s && strcmp(id.u.s, actor_id) == 0) {
+            *out_actor_table = actor_table;
+            return Ok;
+        }
+    }
+
+    return Err;
+}
+
+static const char *find_script_module(toml_datum_t actor_table) {
+    if (actor_table.type != TOML_TABLE)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t script = toml_get(components, "Script");
+            if (script.type == TOML_TABLE) {
+                toml_datum_t module = toml_get(script, "module");
+                if (module.type == TOML_STRING && module.u.s && module.u.s[0] != '\0')
+                    return module.u.s;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t script = toml_get(components, "Script");
+        if (script.type == TOML_TABLE) {
+            toml_datum_t module = toml_get(script, "module");
+            if (module.type == TOML_STRING && module.u.s && module.u.s[0] != '\0')
+                return module.u.s;
+        }
+    }
+
+    return Null;
+}
+
+static boolean read_actor_enabled(toml_datum_t actor_table) {
+    toml_datum_t enabled = toml_get(actor_table, "enabled");
+    if (enabled.type == TOML_BOOLEAN)
+        return enabled.u.boolean ? True : False;
+
+    return True;
+}
+
+static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab) {
+    toml_datum_t scene_table = toml_get(scene_toptab, "Scene");
+    if (scene_table.type != TOML_TABLE) {
+        log_err("Scene manifest is missing [Scene] table");
+        return Err;
+    }
+
+    toml_datum_t scene_load = toml_get(scene_table, "Load");
+    if (scene_load.type != TOML_TABLE) {
+        log_err("Scene manifest is missing [Scene.Load] table");
+        return Err;
+    }
+
+    toml_datum_t scene_actor_ids = toml_get(scene_load, "actors");
+    if (scene_actor_ids.type != TOML_ARRAY) {
+        log_err("Scene manifest is missing Scene.Load.actors array");
+        return Err;
+    }
+
+    toml_datum_t data_actors = toml_get(data_toptab, "Actors");
+    if (data_actors.type != TOML_ARRAY) {
+        log_err("Scene data is missing [[Actors]] array");
+        return Err;
+    }
+
+    for (int index = 0; index < scene_actor_ids.u.arr.size; ++index) {
+        toml_datum_t actor_id = scene_actor_ids.u.arr.elem[index];
+        if (actor_id.type != TOML_STRING || !actor_id.u.s || actor_id.u.s[0] == '\0') {
+            log_err("Scene.Load.actors[%d] must be a non-empty string", index);
+            return Err;
+        }
+
+        toml_datum_t actor_table = {0};
+        if (find_actor_table_by_id(data_actors, actor_id.u.s, &actor_table) != Ok) {
+            log_err("Actor '%s' listed in Scene.Load.actors was not found in scene data", actor_id.u.s);
+            return Err;
+        }
+
+        Actor *actor = actor_registry_create_actor(&runtime_state.actor_registry, (char *)actor_id.u.s, read_actor_enabled(actor_table));
+        if (!actor) {
+            log_err("Failed to create actor '%s'", actor_id.u.s);
+            return Err;
+        }
+
+        const char *module = find_script_module(actor_table);
+        if (module) {
+            void *script_state = script_component_state_create(module);
+            if (!script_state) {
+                log_err("Failed to create script state for actor '%s' (module '%s')", actor_id.u.s, module);
+                return Err;
+            }
+
+            ComponentDescriptor descriptor = {
+                .name = (char *)module,
+                .kind = ComponentScript,
+                .initialize = script_component_initialize,
+                .context = &runtime_state.script_runtime,
+            };
+
+            if (actor_add_component(actor, descriptor, script_state) != Ok) {
+                script_component_state_dispose(script_state);
+                log_err("Failed to add script component '%s' to actor '%s'", module, actor_id.u.s);
+                return Err;
+            }
+        }
+
+        if (actor_initialize_components(actor) != Ok)
+            return Err;
+
+        log_msg("Instantiated actor '%s'", actor_id.u.s);
+    }
+
+    return Ok;
+}
+
 result run_project_runtime(const char *project_path) {
+    toml_result_t project_toml = {0};
+    toml_result_t scene_toml = {0};
+    toml_result_t scene_data_toml = {0};
+    boolean project_ok = False;
+    boolean scene_ok = False;
+    boolean scene_data_ok = False;
+
     struct stat project_stat = {0};
     if (!project_path || stat(project_path, &project_stat) != 0 || !S_ISDIR(project_stat.st_mode)) {
         log_err("Project path '%s' is not a valid directory", project_path ? project_path : "<null>");
@@ -181,36 +355,32 @@ result run_project_runtime(const char *project_path) {
         return Err;
     }
 
-    toml_result_t project_toml = {0};
     if (parse_toml_file(springengine_config_path, &project_toml) != Ok)
         return Err;
+    project_ok = True;
 
     toml_datum_t boot_table = toml_get(project_toml.toptab, "Boot");
     if (boot_table.type != TOML_TABLE) {
         log_err("Config '%s' is missing [Boot] table", springengine_config_path);
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
     toml_datum_t first_scene = toml_get(boot_table, "first_scene");
     if (first_scene.type != TOML_STRING || !first_scene.u.s || first_scene.u.s[0] == '\0') {
         log_err("Config '%s' is missing Boot.first_scene", springengine_config_path);
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
     toml_datum_t autoload_data = toml_get(boot_table, "autoload_data");
     if (autoload_data.type != TOML_STRING || !autoload_data.u.s || autoload_data.u.s[0] == '\0') {
         log_err("Config '%s' is missing Boot.autoload_data", springengine_config_path);
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
     char scenes_root[PATH_MAX] = {0};
     if (snprintf(scenes_root, sizeof(scenes_root), "%s", project_path) >= (int)sizeof(scenes_root)) {
         log_err("Project path is too long: '%s'", project_path);
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
     toml_datum_t paths_table = toml_get(project_toml.toptab, "Paths");
@@ -219,8 +389,7 @@ result run_project_runtime(const char *project_path) {
         if (scenes_dir.type == TOML_STRING && scenes_dir.u.s && scenes_dir.u.s[0] != '\0') {
             if (join_path(project_path, scenes_dir.u.s, scenes_root, sizeof(scenes_root)) != Ok) {
                 log_err("Failed to resolve Paths.scenes_dir from '%s'", springengine_config_path);
-                toml_free(project_toml);
-                return Err;
+                goto fail;
             }
         }
     }
@@ -228,72 +397,60 @@ result run_project_runtime(const char *project_path) {
     char autoload_path[PATH_MAX] = {0};
     if (join_path(project_path, autoload_data.u.s, autoload_path, sizeof(autoload_path)) != Ok) {
         log_err("Failed to resolve Boot.autoload_data path");
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
     toml_result_t autoload_toml = {0};
-    if (parse_toml_file(autoload_path, &autoload_toml) != Ok) {
-        toml_free(project_toml);
-        return Err;
-    }
+    if (parse_toml_file(autoload_path, &autoload_toml) != Ok)
+        goto fail;
     toml_free(autoload_toml);
 
     char first_scene_path[PATH_MAX] = {0};
     if (join_path(scenes_root, first_scene.u.s, first_scene_path, sizeof(first_scene_path)) != Ok) {
         log_err("Failed to resolve Boot.first_scene path");
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
-    toml_result_t scene_toml = {0};
-    if (parse_toml_file(first_scene_path, &scene_toml) != Ok) {
-        toml_free(project_toml);
-        return Err;
-    }
+    if (parse_toml_file(first_scene_path, &scene_toml) != Ok)
+        goto fail;
+    scene_ok = True;
 
     toml_datum_t scene_table = toml_get(scene_toml.toptab, "Scene");
     if (scene_table.type != TOML_TABLE) {
         log_err("Scene config '%s' is missing [Scene] table", first_scene_path);
-        toml_free(scene_toml);
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
     toml_datum_t scene_data_file = toml_get(scene_table, "data_file");
     if (scene_data_file.type != TOML_STRING || !scene_data_file.u.s || scene_data_file.u.s[0] == '\0') {
         log_err("Scene config '%s' is missing Scene.data_file", first_scene_path);
-        toml_free(scene_toml);
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
     char first_scene_directory[PATH_MAX] = {0};
     if (parent_directory(first_scene_path, first_scene_directory, sizeof(first_scene_directory)) != Ok) {
         log_err("Failed to resolve first scene directory for '%s'", first_scene_path);
-        toml_free(scene_toml);
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
     char scene_data_path[PATH_MAX] = {0};
     if (join_path(first_scene_directory, scene_data_file.u.s, scene_data_path, sizeof(scene_data_path)) != Ok) {
         log_err("Failed to resolve Scene.data_file path");
-        toml_free(scene_toml);
-        toml_free(project_toml);
-        return Err;
+        goto fail;
     }
 
-    toml_result_t scene_data_toml = {0};
-    if (parse_toml_file(scene_data_path, &scene_data_toml) != Ok) {
-        toml_free(scene_toml);
-        toml_free(project_toml);
-        return Err;
-    }
+    if (parse_toml_file(scene_data_path, &scene_data_toml) != Ok)
+        goto fail;
+    scene_data_ok = True;
 
-    toml_free(scene_data_toml);
-    toml_free(scene_toml);
-    toml_free(project_toml);
+    actor_registry_init(&runtime_state.actor_registry);
+    if (script_runtime_init(&runtime_state.script_runtime, project_path) != Ok)
+        goto fail;
+
+    runtime_state.active = True;
+
+    if (load_scene_actors(scene_toml.toptab, scene_data_toml.toptab) != Ok)
+        goto fail;
 
     log_msg("Loaded project config '%s'", springengine_config_path);
     log_msg("Loaded autoload data '%s'", autoload_path);
@@ -301,10 +458,40 @@ result run_project_runtime(const char *project_path) {
     log_msg("Loaded first scene data '%s'", scene_data_path);
 
     if (open_window(window_config) != Ok)
-        return Err;
+        goto fail;
 
     while (!update_window(frame_update)) {}
 
     close_window();
+
+    dispose_runtime_components();
+    actor_registry_dispose(&runtime_state.actor_registry);
+    script_runtime_dispose(&runtime_state.script_runtime);
+    runtime_state.active = False;
+
+    if (scene_data_ok)
+        toml_free(scene_data_toml);
+    if (scene_ok)
+        toml_free(scene_toml);
+    if (project_ok)
+        toml_free(project_toml);
+
     return Ok;
-}
+
+fail:
+    if (runtime_state.active) {
+        dispose_runtime_components();
+        actor_registry_dispose(&runtime_state.actor_registry);
+        script_runtime_dispose(&runtime_state.script_runtime);
+        runtime_state.active = False;
+    }
+
+    if (scene_data_ok)
+        toml_free(scene_data_toml);
+    if (scene_ok)
+        toml_free(scene_toml);
+    if (project_ok)
+        toml_free(project_toml);
+
+    return Err;
+ }
