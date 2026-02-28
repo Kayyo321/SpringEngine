@@ -1,9 +1,7 @@
 #include "program.h"
 #include "testing/testing.h"
 
-#include "actor/actor.h"
-#include "config/project_config.h"
-#include "windowman/windowman.h"
+#include "config/runtime_loader.h"
 
 #include <string.h>
 
@@ -18,7 +16,8 @@ static void version(void) {
 }
 
 static void run(const char *project_path) {
-    log_err("Running project '%s' is not implemented yet", project_path);
+    if (run_project_runtime(project_path) != Ok)
+        quit(Err);
 }
 
 void run_program(void) {
