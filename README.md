@@ -63,6 +63,10 @@ SpringEngine aims for a Unity-style authoring model, with Lua as the primary scr
 - Provide an SDK surface for game developers to build SpringEngine-compatible games.
 - Prioritize Lua-first gameplay authoring and tooling.
 
+## Config-First Roadmap
+
+- See `docs/config-system-vision.md` for the full `.conf`-driven architecture (project config, scenes, actor data, prefabs, and persistence model).
+
 ## C Project Build System
 
 Project layout:
