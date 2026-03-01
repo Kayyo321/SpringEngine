@@ -1220,6 +1220,7 @@ static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_top
 result run_project_runtime(const char *project_path) {
     toml_result_t project_toml = {0};
     boolean project_ok = False;
+    boolean window_opened = False;
 
     struct stat project_stat = {0};
     if (!project_path || stat(project_path, &project_stat) != 0 || !S_ISDIR(project_stat.st_mode)) {
@@ -1342,10 +1343,9 @@ result run_project_runtime(const char *project_path) {
 
     if (open_window(window_config) != Ok)
         goto fail;
+    window_opened = True;
 
     while (!update_window(frame_update)) {}
-
-    close_window();
 
     dispose_runtime_components();
     actor_registry_dispose(&runtime_state.actor_registry);
@@ -1354,6 +1354,10 @@ result run_project_runtime(const char *project_path) {
         dispose_dj(&runtime_state.dj);
         runtime_state.dj_enabled = False;
     }
+
+    if (window_opened)
+        close_window();
+
     runtime_state.active = False;
     runtime_state.project_root[0] = '\0';
     runtime_state.scenes_root[0] = '\0';
@@ -1378,6 +1382,10 @@ fail:
             dispose_dj(&runtime_state.dj);
             runtime_state.dj_enabled = False;
         }
+
+        if (window_opened)
+            close_window();
+
         runtime_state.active = False;
         runtime_state.project_root[0] = '\0';
         runtime_state.scenes_root[0] = '\0';

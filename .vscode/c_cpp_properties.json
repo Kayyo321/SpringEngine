@@ -15,7 +15,8 @@
         "${workspaceFolder}/lib/tomlc17/include",
         "${workspaceFolder}/lib/lua-5.4.6/src",
         "${workspaceFolder}/lib/lua-5.4.6/src/**",
-        "${workspaceFolder}/lib/raylib/include"
+        "${workspaceFolder}/lib/raylib/src",
+        "${workspaceFolder}/lib/raylib/src/**"
       ],
       "browse": {
         "path": [
@@ -23,7 +24,7 @@
           "${workspaceFolder}/lib",
           "${workspaceFolder}/lib/tomlc17/include",
           "${workspaceFolder}/lib/lua-5.4.6/src",
-          "${workspaceFolder}/lib/raylib/include"
+          "${workspaceFolder}/lib/raylib/src"
         ],
         "limitSymbolsToIncludedHeaders": true
       }
@@ -44,7 +45,8 @@
         "${workspaceFolder}/lib/tomlc17/include",
         "${workspaceFolder}/lib/lua-5.4.6/src",
         "${workspaceFolder}/lib/lua-5.4.6/src/**",
-        "${workspaceFolder}/lib/raylib/include"
+        "${workspaceFolder}/lib/raylib/src",
+        "${workspaceFolder}/lib/raylib/src/**"
       ],
       "browse": {
         "path": [
@@ -52,7 +54,7 @@
           "${workspaceFolder}/lib",
           "${workspaceFolder}/lib/tomlc17/include",
           "${workspaceFolder}/lib/lua-5.4.6/src",
-          "${workspaceFolder}/lib/raylib/include"
+          "${workspaceFolder}/lib/raylib/src"
         ],
         "limitSymbolsToIncludedHeaders": true
       }
