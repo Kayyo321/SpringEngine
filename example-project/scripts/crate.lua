@@ -4,7 +4,7 @@ local Transform = require("Engine.Transform")
 local Time = require("Engine.Time")
 
 local crate = {
-    move_speed = 4.0,
+    move_speed = 24.0 * 3,
 }
 
 local function log_message(message)
