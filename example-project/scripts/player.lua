@@ -5,12 +5,14 @@ local DJ = require("Engine.DJ")
 local Time = require("Engine.Time")
 
 local player = {
-	move_speed = 28.0,
-	jump_speed = 12.0,
-	gravity = 36.0,
+	move_speed = 45.0,
+	jump_speed = 18.0,
+	gravity = 60.0,
 	vertical_velocity = 0.0,
 	is_grounded = true,
 	ground_y = 0.0,
+	apex_sfx_played = true,
+	apex_velocity_threshold = 2.0,
 }
 
 local function log_message(message)
@@ -49,6 +51,7 @@ end
 function player:start()
 	self.vertical_velocity = 0.0
 	self.is_grounded = true
+	self.apex_sfx_played = true
 	if Transform.get_position then
 		local _, position_y, _ = Transform.get_position()
 		self.ground_y = position_y or 0.0
@@ -62,7 +65,13 @@ end
 function player:update()
 	local delta_time = get_delta_time()
 	local move_x = read_move_input()
-	local horizontal_speed = math.abs(move_x)
+	local run_multiplier = 1.0
+	if Input.accepted and Input.accepted("Run") then
+		run_multiplier = 2.0
+	end
+
+	local effective_move_x = move_x * run_multiplier
+	local horizontal_speed = math.abs(effective_move_x)
 	local is_moving = horizontal_speed > 0.001
 
 	local anim_conf = self.get_component and self.get_component("AnimConf") or nil
@@ -72,7 +81,7 @@ function player:update()
 
 	if Transform.translate then
 		Transform.translate(
-			move_x * self.move_speed * delta_time,
+			effective_move_x * self.move_speed * delta_time,
 			0.0,
 			0.0
 		)
@@ -88,7 +97,7 @@ function player:update()
 	if jump_pressed and self.is_grounded then
 		self.vertical_velocity = -self.jump_speed
 		self.is_grounded = false
-		play_stomp_sfx()
+		self.apex_sfx_played = false
 	end
 
 	self.vertical_velocity = self.vertical_velocity + self.gravity * delta_time
@@ -110,6 +119,16 @@ function player:update()
 		anim_conf.set_number("speed", horizontal_speed)
 		anim_conf.set_number("vertical_speed", self.vertical_velocity)
 		anim_conf.set_number("grounded", self.is_grounded and 1.0 or 0.0)
+
+		if anim_conf.get_number and (not self.apex_sfx_played) then
+			local config_vertical_speed = anim_conf.get_number("vertical_speed")
+			local config_grounded = anim_conf.get_number("grounded")
+
+			if config_vertical_speed and config_grounded and config_grounded < 0.5 and math.abs(config_vertical_speed) <= self.apex_velocity_threshold then
+				play_stomp_sfx()
+				self.apex_sfx_played = true
+			end
+		end
 	end
 end
 
