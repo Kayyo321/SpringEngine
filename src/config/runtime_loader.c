@@ -55,6 +55,10 @@ static void rigidbody_component_resolve_collisions(void);
 static const float RuntimePhysicsGravityX = 0.0f;
 static const float RuntimePhysicsGravityY = 240.0f;
 
+enum {
+    RuntimeMaxActorScriptComponents = 16,
+};
+
 static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     if (!out_number)
         return False;
@@ -2209,9 +2213,68 @@ static result find_actor_table_by_id(toml_datum_t actors_array, const char *acto
     return Err;
 }
 
-static const char *find_script_module(toml_datum_t actor_table) {
+static boolean script_module_exists(const char **modules, usize module_count, const char *candidate) {
+    if (!modules || !candidate || candidate[0] == '\0')
+        return False;
+
+    for (usize index = 0; index < module_count; ++index) {
+        const char *existing = modules[index];
+        if (existing && strcmp(existing, candidate) == 0)
+            return True;
+    }
+
+    return False;
+}
+
+static result collect_script_modules_from_table(toml_datum_t script_table, const char **out_modules, usize max_modules, usize *out_module_count) {
+    if (!out_modules || !out_module_count || max_modules == 0)
+        return Err;
+
+    *out_module_count = 0;
+    if (script_table.type != TOML_TABLE)
+        return Ok;
+
+    toml_datum_t modules = toml_get(script_table, "modules");
+    if (modules.type == TOML_ARRAY) {
+        for (int index = 0; index < modules.u.arr.size; ++index) {
+            toml_datum_t module = modules.u.arr.elem[index];
+            if (module.type != TOML_STRING || !module.u.s || module.u.s[0] == '\0')
+                return Err;
+
+            if (script_module_exists(out_modules, *out_module_count, module.u.s))
+                continue;
+
+            if (*out_module_count >= max_modules)
+                return Err;
+
+            out_modules[(*out_module_count)++] = module.u.s;
+        }
+    } else if (modules.type != TOML_UNKNOWN) {
+        return Err;
+    }
+
+    toml_datum_t module = toml_get(script_table, "module");
+    if (module.type == TOML_STRING && module.u.s && module.u.s[0] != '\0') {
+        if (!script_module_exists(out_modules, *out_module_count, module.u.s)) {
+            if (*out_module_count >= max_modules)
+                return Err;
+
+            out_modules[(*out_module_count)++] = module.u.s;
+        }
+    } else if (module.type != TOML_UNKNOWN) {
+        return Err;
+    }
+
+    return Ok;
+}
+
+static result find_script_modules(toml_datum_t actor_table, const char **out_modules, usize max_modules, usize *out_module_count) {
+    if (!out_modules || !out_module_count || max_modules == 0)
+        return Err;
+
+    *out_module_count = 0;
     if (actor_table.type != TOML_TABLE)
-        return Null;
+        return Ok;
 
     toml_datum_t overrides = toml_get(actor_table, "Overrides");
     if (overrides.type == TOML_TABLE) {
@@ -2219,9 +2282,11 @@ static const char *find_script_module(toml_datum_t actor_table) {
         if (components.type == TOML_TABLE) {
             toml_datum_t script = toml_get(components, "Script");
             if (script.type == TOML_TABLE) {
-                toml_datum_t module = toml_get(script, "module");
-                if (module.type == TOML_STRING && module.u.s && module.u.s[0] != '\0')
-                    return module.u.s;
+                if (collect_script_modules_from_table(script, out_modules, max_modules, out_module_count) != Ok)
+                    return Err;
+
+                if (*out_module_count > 0)
+                    return Ok;
             }
         }
     }
@@ -2230,13 +2295,12 @@ static const char *find_script_module(toml_datum_t actor_table) {
     if (components.type == TOML_TABLE) {
         toml_datum_t script = toml_get(components, "Script");
         if (script.type == TOML_TABLE) {
-            toml_datum_t module = toml_get(script, "module");
-            if (module.type == TOML_STRING && module.u.s && module.u.s[0] != '\0')
-                return module.u.s;
+            if (collect_script_modules_from_table(script, out_modules, max_modules, out_module_count) != Ok)
+                return Err;
         }
     }
 
-    return Null;
+    return Ok;
 }
 
 static boolean read_actor_enabled(toml_datum_t actor_table) {
@@ -2285,8 +2349,18 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         return Err;
     }
 
-    const char *module = find_script_module(actor_table);
-    if (module) {
+    const char *script_modules[RuntimeMaxActorScriptComponents] = {0};
+    usize script_module_count = 0;
+    if (find_script_modules(actor_table, script_modules, RuntimeMaxActorScriptComponents, &script_module_count) != Ok) {
+        log_err("Actor '%s' has invalid Script component; expected module=" "<string>" " or modules=[" "<string>" ", ...]", actor_id);
+        return Err;
+    }
+
+    for (usize script_index = 0; script_index < script_module_count; ++script_index) {
+        const char *module = script_modules[script_index];
+        if (!module || module[0] == '\0')
+            continue;
+
         void *script_state = script_component_state_create(module);
         if (!script_state) {
             log_err("Failed to create script state for actor '%s' (module '%s')", actor_id, module);

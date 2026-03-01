@@ -6,7 +6,7 @@ local Actor = require("Engine.Actor")
 local crate_create = {
 	target_actor_id = "player_spawn",
     crate_count = 6,
-    spacing = 96.0,
+    spacing = 96.0 * 2.0,
     y_offset = 140.0,
     spawned = false,
 }
