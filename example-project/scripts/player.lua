@@ -2,6 +2,7 @@ local Engine = require("Engine")
 local Input = require("Engine.Input")
 local Transform = require("Engine.Transform")
 local DJ = require("Engine.DJ")
+local Time = require("Engine.Time")
 
 local player = {
 	move_speed = 6.0,
@@ -49,11 +50,7 @@ local function read_move_input()
 end
 
 local function get_delta_time()
-	if Time and Time.delta_time then
-		return Time.delta_time()
-	end
-
-	return 1.0 / 60.0
+	return Time.delta_time()
 end
 
 local function current_schema_name()

@@ -1,6 +1,7 @@
 local Engine = require("Engine")
 local Input = require("Engine.Input")
 local Transform = require("Engine.Transform")
+local Time = require("Engine.Time")
 
 local crate = {
     move_speed = 4.0,
@@ -15,11 +16,7 @@ local function log_message(message)
 end
 
 local function get_delta_time()
-    if Time and Time.delta_time then
-        return Time.delta_time()
-    end
-
-    return 1.0 / 60.0
+    return Time.delta_time()
 end
 
 function crate:awake()

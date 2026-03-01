@@ -1,6 +1,7 @@
 local Engine = require("Engine")
 local Actor = require("Engine.Actor")
 local Camera = require("Engine.Camera")
+local Time = require("Engine.Time")
 
 local camera_follow = {
     target_actor_id = "crate_001",
@@ -29,11 +30,7 @@ local function clamp(value, min_value, max_value)
 end
 
 local function get_delta_time()
-    if Time and Time.delta_time then
-        return Time.delta_time()
-    end
-
-    return 1.0 / 60.0
+    return Time.delta_time()
 end
 
 local function smoothing_alpha(speed, delta_time)

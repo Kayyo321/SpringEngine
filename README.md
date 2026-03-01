@@ -50,6 +50,7 @@ Example:
 ```lua
 local Engine = require("Engine")
 local Input = require("Engine.Input")
+local Time = require("Engine.Time")
 local Transform = require("Engine.Transform")
 local Scene = require("Engine.Scene")
 ```
@@ -58,11 +59,22 @@ Available modules:
 
 - `Engine` (root utilities: logging, version, module access)
 - `Engine.Input`
+- `Engine.Time`
 - `Engine.Transform`
 - `Engine.Actor`
 - `Engine.Camera`
 - `Engine.Scene`
 - `Engine.DJ`
+
+### Time API (Lua)
+
+`Engine.Time` currently supports:
+
+- Frame values: `delta_time()`, `unscaled_delta_time()`, `elapsed_time()`, `unscaled_elapsed_time()`
+- Runtime metrics: `since_startup()`, `fps()`, `frame_count()`
+- Time controls: `time_scale()`, `set_time_scale(value)`, `is_paused()`, `set_paused(value)`, `pause()`, `resume()`
+- Step controls: `max_delta_time()`, `set_max_delta_time(value)`, `fixed_delta_time()`, `set_fixed_delta_time(value)`
+- Utility helpers: `seconds(x)`, `milliseconds(x)`, `minutes(x)`, `hours(x)`, `clamp(v, min, max)`, `lerp(a, b, t)`, `move_towards(current, target, max_delta)`
 
 ### Scene API (Lua)
 

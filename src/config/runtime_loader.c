@@ -613,6 +613,8 @@ static void frame_update(void) {
 
     process_pending_scene_load();
 
+    script_runtime_begin_frame(&runtime_state.script_runtime);
+
     if (runtime_state.dj_enabled)
         update_dj(&runtime_state.dj);
 

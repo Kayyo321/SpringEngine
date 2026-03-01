@@ -12,9 +12,19 @@ typedef struct {
     ActorRegistry *actor_registry;
     Actor *current_actor;
     char project_root[4096];
+    float time_raw_delta_time;
+    float time_delta_time;
+    float time_unscaled_elapsed_time;
+    float time_elapsed_time;
+    float time_scale;
+    float time_max_delta_time;
+    float time_fixed_delta_time;
+    usize time_frame_count;
+    boolean time_paused;
 } ScriptRuntime;
 
 result script_runtime_init(ScriptRuntime *runtime, const char *project_root, DJ *dj);
+void script_runtime_begin_frame(ScriptRuntime *runtime);
 void script_runtime_bind_registry(ScriptRuntime *runtime, ActorRegistry *actor_registry);
 void script_runtime_dispose(ScriptRuntime *runtime);
 
