@@ -32,6 +32,7 @@ void run_all_tests(void) {
     run_allocator_tests();
     run_actor_tests();
     run_project_config_tests();
+    run_ui_runtime_tests();
     run_runtime_loader_tests();
     run_script_runtime_tests();
     run_window_tests();

@@ -144,6 +144,34 @@ void run_script_runtime_tests(void) {
                     ++failed;
                 }
                 lua_pop(lua_state, 1);
+
+                lua_getfield(lua_state, -1, "UI");
+                if (!lua_istable(lua_state, -1)) {
+                    log_err("Engine.UI should be exposed as a table");
+                    ++failed;
+                } else {
+                    const char *expected_ui_methods[] = {
+                        "find",
+                        "set_visible",
+                        "set_text",
+                        "push_document",
+                        "pop_document",
+                        "set_document_layer",
+                        "bring_to_front",
+                        "send_to_back",
+                        "current_documents",
+                    };
+
+                    for (usize method_index = 0; method_index < (sizeof(expected_ui_methods) / sizeof(expected_ui_methods[0])); ++method_index) {
+                        lua_getfield(lua_state, -1, expected_ui_methods[method_index]);
+                        if (!lua_isfunction(lua_state, -1)) {
+                            log_err("Engine.UI.%s should be exposed as a function", expected_ui_methods[method_index]);
+                            ++failed;
+                        }
+                        lua_pop(lua_state, 1);
+                    }
+                }
+                lua_pop(lua_state, 1);
             }
             lua_pop(lua_state, 1);
 
