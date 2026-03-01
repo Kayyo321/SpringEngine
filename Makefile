@@ -35,7 +35,7 @@ OBJ := $(patsubst $(SRCDIR)/%.c,$(BUILD_OBJDIR)/%.o,$(SRC))
 
 SRC_INCLUDE_DIRS := $(shell find $(SRCDIR) -type d 2>/dev/null)
 LIB_INCLUDE_DIRS := \
-	$(LIBDIR)/raylib/include \
+	$(LIBDIR)/raylib/src \
 	$(LIBDIR)/lua-5.4.6/src \
 	$(LIBDIR)/tomlc17/include
 
@@ -45,8 +45,8 @@ CPPFLAGS += $(addprefix -I,$(LIB_INCLUDE_DIRS))
 ifeq ($(UNAME_S),Linux)
 RAYLIB_CFLAGS := $(shell pkg-config --cflags raylib 2>/dev/null)
 RAYLIB_LIBS := $(shell pkg-config --libs raylib 2>/dev/null)
+SDL2_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
 CPPFLAGS += $(RAYLIB_CFLAGS)
-LDLIBS += $(RAYLIB_LIBS)
 endif
 
 ifeq ($(wildcard $(TOMLC17_DIR)/include/tomlc17.h),)
@@ -79,6 +79,12 @@ LIB_FILES := $(filter-out $(TOMLC17_STATIC_LIB),$(LIB_FILES))
 LDLIBS += $(LIB_FILES)
 LDLIBS += $(LUA_STATIC_LIB)
 LDLIBS += $(TOMLC17_STATIC_LIB)
+
+ifeq ($(UNAME_S),Linux)
+LDLIBS += $(RAYLIB_LIBS)
+LDLIBS += $(SDL2_LIBS)
+LDLIBS += -lm
+endif
 
 ifeq ($(UNAME_S),Darwin)
 LDFLAGS += -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreAudio -framework AudioToolbox -framework CoreFoundation -framework AppKit
