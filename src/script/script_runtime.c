@@ -3,6 +3,7 @@
 typedef struct {
     Heap heap;
     char module_path[PATH_MAX];
+    char module_alias[128];
     int table_ref;
     boolean has_awake;
     boolean has_start;
@@ -207,6 +208,26 @@ static ActorComponent *find_builtin_component(Actor *actor, const char *componen
 
         if (strcmp(component->descriptor.name, component_name) == 0)
             return component;
+    }
+
+    return Null;
+}
+
+static ScriptComponentState *find_actor_script_component_state(Actor *actor, const char *module_path) {
+    if (!actor || !module_path || module_path[0] == '\0')
+        return Null;
+
+    for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+        ActorComponent *component = &actor->components[component_index];
+        if (component->descriptor.kind != ComponentScript || !component->data)
+            continue;
+
+        ScriptComponentState *state = (ScriptComponentState *)component->data;
+        if (strcmp(state->module_path, module_path) == 0)
+            return state;
+
+        if (state->module_alias[0] != '\0' && strcmp(state->module_alias, module_path) == 0)
+            return state;
     }
 
     return Null;
@@ -652,6 +673,66 @@ static int lua_component_animconf_get_flip_x(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_component_script_call(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const char *module_path = lua_tostring(lua_state, lua_upvalueindex(2));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int method_index = using_colon_call ? 2 : 1;
+    const int first_arg_index = using_colon_call ? 3 : 2;
+    const int original_arg_top = lua_gettop(lua_state);
+
+    const char *method_name = luaL_checkstring(lua_state, method_index);
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id ? actor_id : "");
+    ScriptComponentState *state = find_actor_script_component_state(actor, module_path);
+    if (!state || state->table_ref == LUA_NOREF) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    lua_rawgeti(lua_state, LUA_REGISTRYINDEX, state->table_ref);
+    if (!lua_istable(lua_state, -1)) {
+        lua_pop(lua_state, 1);
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    lua_getfield(lua_state, -1, method_name);
+    if (!lua_isfunction(lua_state, -1)) {
+        lua_pop(lua_state, 2);
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    lua_pushvalue(lua_state, -2);
+
+    int forwarded_arg_count = 0;
+    for (int arg_index = first_arg_index; arg_index <= original_arg_top; ++arg_index) {
+        lua_pushvalue(lua_state, arg_index);
+        forwarded_arg_count++;
+    }
+
+    lua_runtime_set_current_actor(lua_state, actor);
+    if (lua_pcall(lua_state, 1 + forwarded_arg_count, 0, 0) != LUA_OK) {
+        const char *error_message = lua_tostring(lua_state, -1);
+        log_err(
+            "Lua script call '%s' failed for actor '%s' (module '%s'): %s",
+            method_name,
+            actor_id ? actor_id : "<unknown>",
+            module_path ? module_path : "<unknown>",
+            error_message ? error_message : "<unknown error>");
+        lua_runtime_set_current_actor(lua_state, Null);
+        lua_pop(lua_state, 2);
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+    lua_runtime_set_current_actor(lua_state, Null);
+
+    lua_pop(lua_state, 1);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
 static int lua_script_self_get_component(lua_State *lua_state) {
     const char *default_actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
     const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
@@ -783,6 +864,18 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         }
 
         lua_remove(lua_state, -2);
+        return 1;
+    }
+
+    ScriptComponentState *script_state = find_actor_script_component_state(actor, resolved_component);
+    if (script_state && script_state->table_ref != LUA_NOREF) {
+        lua_newtable(lua_state);
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushstring(lua_state, resolved_component);
+        lua_pushcclosure(lua_state, lua_component_script_call, 2);
+        lua_setfield(lua_state, -2, "call");
+
         return 1;
     }
 
@@ -919,7 +1012,7 @@ void script_runtime_dispose(ScriptRuntime *runtime) {
     memset(runtime, 0, sizeof(*runtime));
 }
 
-void *script_component_state_create(const char *module_path) {
+void *script_component_state_create(const char *module_path, const char *module_alias) {
     if (!module_path || module_path[0] == '\0')
         return Null;
 
@@ -935,6 +1028,14 @@ void *script_component_state_create(const char *module_path) {
         log_err("Script module path is too long: '%s'", module_path);
         deallocate(state->heap);
         return Null;
+    }
+
+    if (module_alias && module_alias[0] != '\0') {
+        if (snprintf(state->module_alias, sizeof(state->module_alias), "%s", module_alias) >= (int)sizeof(state->module_alias)) {
+            log_err("Script module alias is too long: '%s'", module_alias);
+            deallocate(state->heap);
+            return Null;
+        }
     }
 
     state->table_ref = LUA_NOREF;

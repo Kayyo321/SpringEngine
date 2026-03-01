@@ -6,11 +6,11 @@ local DJ = require("Engine.DJ")
 local Time = require("Engine.Time")
 
 local player = {
-	move_speed = 45.0,
-	jump_force = 78.0,
+	health = 100.0,
+	move_speed = 180.0,
+	jump_force = 78.0 * 18.0,
+	jump_gravity_scale = 5.0,
 	facing_x = 1.0,
-	apex_sfx_played = true,
-	apex_velocity_threshold = 6.0,
 }
 
 local function log_message(message)
@@ -47,11 +47,14 @@ function player:awake()
 end
 
 function player:start()
-	self.apex_sfx_played = true
 	self.facing_x = 1.0
 
 	if Rigidbody.set_velocity then
 		Rigidbody.set_velocity(0.0, 0.0)
+	end
+
+	if Rigidbody.set_gravity_scale then
+		Rigidbody.set_gravity_scale(self.jump_gravity_scale)
 	end
 
 	if DJ.load_sound then
@@ -109,7 +112,7 @@ function player:update()
 
 	if jump_pressed and is_grounded and Rigidbody.apply_force then
 		Rigidbody.apply_force(0.0, -1.0, self.jump_force)
-		self.apex_sfx_played = false
+		play_stomp_sfx()
 	end
 
 	local vertical_velocity = 0.0
@@ -122,21 +125,24 @@ function player:update()
 		anim_conf.set_number("speed", horizontal_speed)
 		anim_conf.set_number("vertical_speed", vertical_velocity)
 		anim_conf.set_number("grounded", is_grounded and 1.0 or 0.0)
-
-		if anim_conf.get_number and (not self.apex_sfx_played) then
-			local config_vertical_speed = anim_conf.get_number("vertical_speed")
-			local config_grounded = anim_conf.get_number("grounded")
-
-			if config_vertical_speed and config_grounded and config_grounded < 0.5 and math.abs(config_vertical_speed) <= self.apex_velocity_threshold then
-				play_stomp_sfx()
-				self.apex_sfx_played = true
-			end
-		end
 	end
 end
 
 function player:on_destroy()
 	log_message("player.lua on_destroy")
+end
+
+function player:take_damage(amount) 
+	self.health = self.health - amount
+	log_message("Player took damage, health now: " .. tostring(self.health))
+
+	if self.health <= 0.0 then
+		self:die()
+	end
+end
+
+function player:die()
+	log_message("Player has died.")
 end
 
 return player

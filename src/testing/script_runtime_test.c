@@ -38,7 +38,7 @@ void run_script_runtime_tests(void) {
     }
 
     {
-        void *state = script_component_state_create("scripts/player.lua");
+        void *state = script_component_state_create("scripts/player.lua", Null);
         if (!state) {
             log_err("script_component_state_create should allocate state for valid module path");
             ++failed;
@@ -46,7 +46,7 @@ void run_script_runtime_tests(void) {
 
         script_component_state_dispose(state);
 
-        if (script_component_state_create(Null) != Null || script_component_state_create("") != Null) {
+        if (script_component_state_create(Null, Null) != Null || script_component_state_create("", Null) != Null) {
             log_err("script_component_state_create should reject null/empty module paths");
             ++failed;
         }

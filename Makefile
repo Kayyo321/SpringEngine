@@ -19,7 +19,8 @@ BUILD_OBJDIR := $(OBJDIR)
 
 ifneq (,$(filter debug,$(MAKECMDGOALS)))
 CPPFLAGS += -DSPRINGENGINE_DEBUG
-CFLAGS += -O0 -g
+CFLAGS += -O0 -g -fsanitize=address -fno-omit-frame-pointer
+LDFLAGS += -fsanitize=address
 TARGET := $(DEBUG_TARGET)
 BUILD_OBJDIR := $(OBJDIR)/debug
 endif

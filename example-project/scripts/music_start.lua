@@ -31,7 +31,7 @@ function music_start:start()
     end
 
     self.started = true
-    log_message("music_start.lua loaded and started temp music")
+    log_message("music_start.lua loaded and started music")
 end
 
 function music_start:on_destroy()

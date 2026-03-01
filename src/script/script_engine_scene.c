@@ -6,6 +6,22 @@ static int lua_scene_actor_destroy(lua_State *lua_state) {
     return 1;
 }
 
+static boolean scene_actor_overlaps_caller(lua_State *lua_state, Actor *candidate) {
+    if (!lua_state || !candidate)
+        return False;
+
+    Actor *caller = lua_runtime_current_actor(lua_state);
+    if (!caller || caller == candidate)
+        return False;
+
+    ColliderComponentData *caller_collider = actor_find_collider_component(caller);
+    ColliderComponentData *candidate_collider = actor_find_collider_component(candidate);
+    if (!caller_collider || !candidate_collider)
+        return False;
+
+    return collider_components_overlap(caller, caller_collider, candidate, candidate_collider);
+}
+
 static void lua_scene_push_actor_table(lua_State *lua_state, Actor *actor) {
     if (!lua_state || !actor) {
         lua_pushnil(lua_state);
@@ -31,6 +47,13 @@ static void lua_scene_push_actor_table(lua_State *lua_state, Actor *actor) {
     lua_pushnumber(lua_state, actor->transform.position.z);
     lua_setfield(lua_state, -2, "z");
     lua_setfield(lua_state, -2, "position");
+
+    lua_newtable(lua_state);
+    for (usize tag_index = 0; tag_index < actor->tag_count; ++tag_index) {
+        lua_pushstring(lua_state, actor->tags[tag_index]);
+        lua_rawseti(lua_state, -2, (int)tag_index + 1);
+    }
+    lua_setfield(lua_state, -2, "tags");
 
     lua_pushstring(lua_state, actor->id ? actor->id : "");
     lua_pushcclosure(lua_state, lua_scene_actor_destroy, 1);
@@ -122,6 +145,66 @@ static int lua_scene_actor_count(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_scene_find_first_by_tag(lua_State *lua_state) {
+    const char *tag = luaL_checkstring(lua_state, 1);
+    const boolean include_disabled = lua_toboolean(lua_state, 2) ? True : False;
+    const boolean overlapping_only = lua_toboolean(lua_state, 3) ? True : False;
+
+    ScriptRuntime *runtime = lua_runtime_instance(lua_state);
+    if (!runtime || !runtime->actor_registry) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    for (usize index = 0; index < runtime->actor_registry->actor_count; ++index) {
+        Actor *actor = &runtime->actor_registry->actors[index];
+        if (!include_disabled && !actor->enabled)
+            continue;
+
+        if (!actor_has_tag(actor, tag))
+            continue;
+
+        if (overlapping_only && !scene_actor_overlaps_caller(lua_state, actor))
+            continue;
+
+        lua_scene_push_actor_table(lua_state, actor);
+        return 1;
+    }
+
+    lua_pushnil(lua_state);
+    return 1;
+}
+
+static int lua_scene_find_all_by_tag(lua_State *lua_state) {
+    const char *tag = luaL_checkstring(lua_state, 1);
+    const boolean include_disabled = lua_toboolean(lua_state, 2) ? True : False;
+    const boolean overlapping_only = lua_toboolean(lua_state, 3) ? True : False;
+
+    ScriptRuntime *runtime = lua_runtime_instance(lua_state);
+    lua_newtable(lua_state);
+
+    if (!runtime || !runtime->actor_registry)
+        return 1;
+
+    int output_index = 1;
+    for (usize index = 0; index < runtime->actor_registry->actor_count; ++index) {
+        Actor *actor = &runtime->actor_registry->actors[index];
+        if (!include_disabled && !actor->enabled)
+            continue;
+
+        if (!actor_has_tag(actor, tag))
+            continue;
+
+        if (overlapping_only && !scene_actor_overlaps_caller(lua_state, actor))
+            continue;
+
+        lua_scene_push_actor_table(lua_state, actor);
+        lua_rawseti(lua_state, -2, output_index++);
+    }
+
+    return 1;
+}
+
 static int lua_scene_load(lua_State *lua_state) {
     const char *scene_path = luaL_checkstring(lua_state, 1);
     lua_pushboolean(lua_state, runtime_request_scene_load(scene_path) == Ok ? 1 : 0);
@@ -193,6 +276,8 @@ static const luaL_Reg scene_methods[] = {
     {"find_by_id", lua_scene_find_by_id},
     {"find_first_by_layer", lua_scene_find_first_by_layer},
     {"find_all_by_layer", lua_scene_find_all_by_layer},
+    {"find_first_by_tag", lua_scene_find_first_by_tag},
+    {"find_all_by_tag", lua_scene_find_all_by_tag},
     {"actor_count", lua_scene_actor_count},
     {"instantiate_prefab", lua_scene_instantiate_prefab},
     {"set_destroy_on_load", lua_scene_set_destroy_on_load},

@@ -57,6 +57,8 @@ void actor_init(Actor *actor, char *id, boolean enabled, int layer) {
     actor->destroy_on_load = True;
     actor->pending_destroy = False;
     actor->layer = layer;
+    actor->tag_count = 0;
+    memset(actor->tags, 0, sizeof(actor->tags));
     actor_transform_reset(actor);
     actor->components_heap = NullHeap;
     actor->components = Null;
@@ -230,4 +232,16 @@ const char *component_kind_name(ComponentKind kind) {
         default:
             return "unknown";
     }
+}
+
+boolean actor_has_tag(const Actor *actor, const char *tag) {
+    if (!actor || !tag || tag[0] == '\0')
+        return False;
+
+    for (usize tag_index = 0; tag_index < actor->tag_count; ++tag_index) {
+        if (strcmp(actor->tags[tag_index], tag) == 0)
+            return True;
+    }
+
+    return False;
 }

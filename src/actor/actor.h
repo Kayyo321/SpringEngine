@@ -6,6 +6,11 @@
 typedef struct Actor Actor;
 typedef struct ActorComponent ActorComponent;
 
+enum {
+    ActorMaxTags = 16,
+    ActorMaxTagLength = 64,
+};
+
 typedef struct {
     float x;
     float y;
@@ -45,6 +50,8 @@ struct Actor {
     boolean destroy_on_load;
     boolean pending_destroy;
     int layer;
+    char tags[ActorMaxTags][ActorMaxTagLength];
+    usize tag_count;
     ActorTransform transform;
 
     Heap components_heap;
@@ -86,5 +93,6 @@ Actor *actor_registry_create_actor(ActorRegistry *registry, char *id, boolean en
 result actor_registry_load_actors(ActorRegistry *registry, const ActorLoadSpec *specs, usize spec_count);
 
 const char *component_kind_name(ComponentKind kind);
+boolean actor_has_tag(const Actor *actor, const char *tag);
 
 #endif // ACTOR_H
