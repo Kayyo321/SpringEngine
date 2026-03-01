@@ -65,6 +65,7 @@ Available modules:
 - `Engine.Camera`
 - `Engine.Scene`
 - `Engine.DJ`
+- `Engine.UI`
 
 ### Time API (Lua)
 

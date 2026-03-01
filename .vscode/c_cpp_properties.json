@@ -1,66 +1,66 @@
 {
-  "version": 4,
-  "configurations": [
-    {
-      "name": "macOS",
-      "compilerPath": "/usr/bin/clang",
-      "intelliSenseMode": "macos-clang-arm64",
-      "cStandard": "c11",
-      "defines": [
-        "_POSIX_C_SOURCE=200809L"
-      ],
-      "includePath": [
-        "${workspaceFolder}/src",
-        "${workspaceFolder}/src/**",
-        "${workspaceFolder}/lib",
-        "${workspaceFolder}/lib/**",
-        "${workspaceFolder}/lib/tomlc17/include",
-        "${workspaceFolder}/lib/lua-5.4.6/src",
-        "${workspaceFolder}/lib/lua-5.4.6/src/**",
-        "${workspaceFolder}/lib/raylib/src",
-        "${workspaceFolder}/lib/raylib/src/**"
-      ],
-      "browse": {
-        "path": [
-          "${workspaceFolder}/src",
-          "${workspaceFolder}/lib",
-          "${workspaceFolder}/lib/tomlc17/include",
-          "${workspaceFolder}/lib/lua-5.4.6/src",
-          "${workspaceFolder}/lib/raylib/src"
-        ],
-        "limitSymbolsToIncludedHeaders": true
-      }
-    },
-    {
-      "name": "macOS-Test",
-      "compilerPath": "/usr/bin/clang",
-      "intelliSenseMode": "macos-clang-arm64",
-      "cStandard": "c11",
-      "defines": [
-        "_POSIX_C_SOURCE=200809L",
-        "TESTING=1"
-      ],
-      "includePath": [
-        "${workspaceFolder}/src",
-        "${workspaceFolder}/src/**",
-        "${workspaceFolder}/lib",
-        "${workspaceFolder}/lib/**",
-        "${workspaceFolder}/lib/tomlc17/include",
-        "${workspaceFolder}/lib/lua-5.4.6/src",
-        "${workspaceFolder}/lib/lua-5.4.6/src/**",
-        "${workspaceFolder}/lib/raylib/src",
-        "${workspaceFolder}/lib/raylib/src/**"
-      ],
-      "browse": {
-        "path": [
-          "${workspaceFolder}/src",
-          "${workspaceFolder}/lib",
-          "${workspaceFolder}/lib/tomlc17/include",
-          "${workspaceFolder}/lib/lua-5.4.6/src",
-          "${workspaceFolder}/lib/raylib/src"
-        ],
-        "limitSymbolsToIncludedHeaders": true
-      }
-    }
-  ]
+    "version": 4,
+    "configurations": [
+        {
+            "name": "macOS",
+            "compilerPath": "/usr/bin/clang",
+            "intelliSenseMode": "macos-clang-arm64",
+            "cStandard": "c11",
+            "defines": [
+                "_POSIX_C_SOURCE=200809L"
+            ],
+            "includePath": [
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/src/**",
+                "${workspaceFolder}/lib",
+                "${workspaceFolder}/lib/**",
+                "${workspaceFolder}/lib/tomlc17/include",
+                "${workspaceFolder}/lib/lua-5.4.6/src",
+                "${workspaceFolder}/lib/lua-5.4.6/src/**",
+                "${workspaceFolder}/lib/raylib/src",
+                "${workspaceFolder}/lib/raylib/src/**"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/src",
+                    "${workspaceFolder}/lib",
+                    "${workspaceFolder}/lib/tomlc17/include",
+                    "${workspaceFolder}/lib/lua-5.4.6/src",
+                    "${workspaceFolder}/lib/raylib/src"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        },
+        {
+            "name": "macOS-Test",
+            "compilerPath": "/usr/bin/gcc",
+            "intelliSenseMode": "macos-clang-arm64",
+            "cStandard": "c11",
+            "defines": [
+                "_POSIX_C_SOURCE=200809L",
+                "TESTING=1"
+            ],
+            "includePath": [
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/src/**",
+                "${workspaceFolder}/lib",
+                "${workspaceFolder}/lib/**",
+                "${workspaceFolder}/lib/tomlc17/include",
+                "${workspaceFolder}/lib/lua-5.4.6/src",
+                "${workspaceFolder}/lib/lua-5.4.6/src/**",
+                "${workspaceFolder}/lib/raylib/src",
+                "${workspaceFolder}/lib/raylib/src/**"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/src",
+                    "${workspaceFolder}/lib",
+                    "${workspaceFolder}/lib/tomlc17/include",
+                    "${workspaceFolder}/lib/lua-5.4.6/src",
+                    "${workspaceFolder}/lib/raylib/src"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ]
 }

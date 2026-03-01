@@ -41,6 +41,7 @@ int luaopen_engine_actor(lua_State *lua_state);
 int luaopen_engine_camera(lua_State *lua_state);
 int luaopen_engine_scene(lua_State *lua_state);
 int luaopen_engine_dj(lua_State *lua_state);
+int luaopen_engine_ui(lua_State *lua_state);
 int luaopen_engine(lua_State *lua_state);
 
 #endif

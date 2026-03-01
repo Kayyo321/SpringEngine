@@ -164,6 +164,8 @@ static result register_engine_libraries(ScriptRuntime *runtime) {
         return Err;
     if (register_preload_module(runtime->lua_state, "Engine.DJ", luaopen_engine_dj) != Ok)
         return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.UI", luaopen_engine_ui) != Ok)
+        return Err;
     if (register_preload_module(runtime->lua_state, "Engine", luaopen_engine) != Ok)
         return Err;
 
@@ -414,4 +416,81 @@ void script_component_destroy(Actor *actor, ActorComponent *component, ScriptRun
 
     script_component_state_dispose(state);
     component->data = Null;
+}
+
+result script_runtime_invoke_ui_callback(ScriptRuntime *runtime, const char *callback_ref, const char *document_id, const char *node_id) {
+    if (!runtime || !runtime->lua_state || !callback_ref || callback_ref[0] == '\0')
+        return Err;
+
+    const char *separator = strchr(callback_ref, ':');
+    if (!separator || separator == callback_ref || separator[1] == '\0') {
+        log_err("UI callback '%s' must use format 'path.lua:function_name'", callback_ref);
+        return Err;
+    }
+
+    char module_path[PATH_MAX] = {0};
+    const usize module_path_length = (usize)(separator - callback_ref);
+    if (module_path_length + 1 > sizeof(module_path)) {
+        log_err("UI callback module path is too long: '%s'", callback_ref);
+        return Err;
+    }
+
+    memcpy(module_path, callback_ref, module_path_length);
+    module_path[module_path_length] = '\0';
+
+    const char *function_name = separator + 1;
+
+    char resolved_script_path[PATH_MAX] = {0};
+    if (runtime_join_path(runtime->project_root, module_path, resolved_script_path, sizeof(resolved_script_path)) != Ok) {
+        log_err("Failed to resolve UI callback script path '%s'", module_path);
+        return Err;
+    }
+
+    lua_State *lua_state = runtime->lua_state;
+
+    if (luaL_loadfile(lua_state, resolved_script_path) != LUA_OK) {
+        const char *error_message = lua_tostring(lua_state, -1);
+        log_err("Failed to load UI callback script '%s': %s", resolved_script_path, error_message ? error_message : "<unknown error>");
+        lua_pop(lua_state, 1);
+        return Err;
+    }
+
+    if (lua_pcall(lua_state, 0, 1, 0) != LUA_OK) {
+        const char *error_message = lua_tostring(lua_state, -1);
+        log_err("Failed to execute UI callback script '%s': %s", resolved_script_path, error_message ? error_message : "<unknown error>");
+        lua_pop(lua_state, 1);
+        return Err;
+    }
+
+    if (!lua_istable(lua_state, -1)) {
+        log_err("UI callback script '%s' must return a table", resolved_script_path);
+        lua_pop(lua_state, 1);
+        return Err;
+    }
+
+    lua_getfield(lua_state, -1, function_name);
+    if (!lua_isfunction(lua_state, -1)) {
+        log_err("UI callback '%s' was not found in '%s'", function_name, resolved_script_path);
+        lua_pop(lua_state, 2);
+        return Err;
+    }
+
+    lua_pushvalue(lua_state, -2);
+    lua_pushstring(lua_state, document_id ? document_id : "");
+    lua_pushstring(lua_state, node_id ? node_id : "");
+
+    if (lua_pcall(lua_state, 3, 0, 0) != LUA_OK) {
+        const char *error_message = lua_tostring(lua_state, -1);
+        log_err(
+            "UI callback '%s' failed (document='%s', node='%s'): %s",
+            callback_ref,
+            document_id ? document_id : "",
+            node_id ? node_id : "",
+            error_message ? error_message : "<unknown error>");
+        lua_pop(lua_state, 2);
+        return Err;
+    }
+
+    lua_pop(lua_state, 1);
+    return Ok;
 }

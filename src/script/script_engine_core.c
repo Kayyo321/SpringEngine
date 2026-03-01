@@ -56,5 +56,8 @@ int luaopen_engine(lua_State *lua_state) {
     luaL_requiref(lua_state, "Engine.DJ", luaopen_engine_dj, 0);
     lua_setfield(lua_state, -2, "DJ");
 
+    luaL_requiref(lua_state, "Engine.UI", luaopen_engine_ui, 0);
+    lua_setfield(lua_state, -2, "UI");
+
     return 1;
 }

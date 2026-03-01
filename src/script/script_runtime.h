@@ -35,4 +35,6 @@ result script_component_initialize(Actor *actor, ActorComponent *component, void
 void script_component_update(Actor *actor, ActorComponent *component, ScriptRuntime *runtime);
 void script_component_destroy(Actor *actor, ActorComponent *component, ScriptRuntime *runtime);
 
+result script_runtime_invoke_ui_callback(ScriptRuntime *runtime, const char *callback_ref, const char *document_id, const char *node_id);
+
 #endif // SCRIPT_RUNTIME_H

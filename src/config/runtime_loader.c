@@ -6,6 +6,7 @@
 #include "dj/dj.h"
 #include "project_config.h"
 #include "script/script_runtime.h"
+#include "ui/ui_runtime.h"
 #include "windowman/windowman.h"
 
 #include "tomlc17.h"
@@ -39,10 +40,12 @@ typedef struct {
     char project_root[PATH_MAX];
     char scenes_root[PATH_MAX];
     char prefabs_root[PATH_MAX];
+    char ui_root[PATH_MAX];
     char autoload_data_path[PATH_MAX];
     char current_scene_path[PATH_MAX];
     char pending_scene_path[PATH_MAX];
     char autoload_actor_ids[RuntimeMaxAutoloadActors][RuntimeMaxAutoloadActorIdLength];
+    UiRuntime *ui_runtime;
 } RuntimeState;
 
 static RuntimeState runtime_state;
@@ -691,6 +694,9 @@ static void frame_update(void) {
         }
     }
 
+    if (runtime_state.ui_runtime)
+        ui_runtime_draw(runtime_state.ui_runtime);
+
     deallocate(draw_order_heap);
 }
 
@@ -1126,6 +1132,14 @@ static result load_scene_runtime(const char *scene_path) {
     if (load_scene_actors(scene_toml.toptab, scene_data_toml.toptab, runtime_state.prefabs_root) != Ok)
         goto fail;
 
+    if (runtime_state.ui_runtime) {
+        if (ui_runtime_unload_scene_documents(runtime_state.ui_runtime) != Ok)
+            goto fail;
+
+        if (ui_runtime_load_scene_documents(runtime_state.ui_runtime, scene_toml.toptab) != Ok)
+            goto fail;
+    }
+
     if (snprintf(runtime_state.current_scene_path, sizeof(runtime_state.current_scene_path), "%s", resolved_scene_path) >= (int)sizeof(runtime_state.current_scene_path)) {
         log_err("Resolved scene path is too long: '%s'", resolved_scene_path);
         goto fail;
@@ -1288,6 +1302,10 @@ result run_project_runtime(const char *project_path) {
         log_err("Project path is too long: '%s'", project_path);
         goto fail;
     }
+    if (snprintf(runtime_state.ui_root, sizeof(runtime_state.ui_root), "%s", project_path) >= (int)sizeof(runtime_state.ui_root)) {
+        log_err("Project path is too long: '%s'", project_path);
+        goto fail;
+    }
 
     toml_datum_t paths_table = toml_get(project_toml.toptab, "Paths");
     if (paths_table.type == TOML_TABLE) {
@@ -1306,6 +1324,14 @@ result run_project_runtime(const char *project_path) {
                 goto fail;
             }
         }
+
+        toml_datum_t ui_dir = toml_get(paths_table, "ui_dir");
+        if (ui_dir.type == TOML_STRING && ui_dir.u.s && ui_dir.u.s[0] != '\0') {
+            if (join_path(project_path, ui_dir.u.s, runtime_state.ui_root, sizeof(runtime_state.ui_root)) != Ok) {
+                log_err("Failed to resolve Paths.ui_dir from '%s'", springengine_config_path);
+                goto fail;
+            }
+        }
     }
 
     if (join_path(project_path, autoload_data.u.s, runtime_state.autoload_data_path, sizeof(runtime_state.autoload_data_path)) != Ok) {
@@ -1321,6 +1347,7 @@ result run_project_runtime(const char *project_path) {
     runtime_state.has_pending_scene_load = False;
     runtime_state.pending_scene_path[0] = '\0';
     runtime_state.current_scene_path[0] = '\0';
+    runtime_state.ui_runtime = Null;
 
     if (cache_autoload_actor_ids(project_toml.toptab) != Ok)
         goto fail;
@@ -1337,6 +1364,9 @@ result run_project_runtime(const char *project_path) {
         goto fail;
     script_runtime_bind_registry(&runtime_state.script_runtime, &runtime_state.actor_registry);
 
+    if (ui_runtime_create(&runtime_state.ui_runtime, project_path, runtime_state.ui_root, &runtime_state.script_runtime) != Ok)
+        goto fail;
+
     if (load_scene_runtime(first_scene.u.s) != Ok)
         goto fail;
 
@@ -1352,6 +1382,10 @@ result run_project_runtime(const char *project_path) {
     dispose_runtime_components();
     actor_registry_dispose(&runtime_state.actor_registry);
     script_runtime_dispose(&runtime_state.script_runtime);
+    if (runtime_state.ui_runtime) {
+        ui_runtime_destroy(runtime_state.ui_runtime);
+        runtime_state.ui_runtime = Null;
+    }
     if (runtime_state.dj_enabled) {
         dispose_dj(&runtime_state.dj);
         runtime_state.dj_enabled = False;
@@ -1364,6 +1398,7 @@ result run_project_runtime(const char *project_path) {
     runtime_state.project_root[0] = '\0';
     runtime_state.scenes_root[0] = '\0';
     runtime_state.prefabs_root[0] = '\0';
+    runtime_state.ui_root[0] = '\0';
     runtime_state.autoload_data_path[0] = '\0';
     runtime_state.current_scene_path[0] = '\0';
     runtime_state.pending_scene_path[0] = '\0';
@@ -1380,6 +1415,10 @@ fail:
         dispose_runtime_components();
         actor_registry_dispose(&runtime_state.actor_registry);
         script_runtime_dispose(&runtime_state.script_runtime);
+        if (runtime_state.ui_runtime) {
+            ui_runtime_destroy(runtime_state.ui_runtime);
+            runtime_state.ui_runtime = Null;
+        }
         if (runtime_state.dj_enabled) {
             dispose_dj(&runtime_state.dj);
             runtime_state.dj_enabled = False;
@@ -1392,6 +1431,7 @@ fail:
         runtime_state.project_root[0] = '\0';
         runtime_state.scenes_root[0] = '\0';
         runtime_state.prefabs_root[0] = '\0';
+        runtime_state.ui_root[0] = '\0';
         runtime_state.autoload_data_path[0] = '\0';
         runtime_state.current_scene_path[0] = '\0';
         runtime_state.pending_scene_path[0] = '\0';
@@ -1423,4 +1463,25 @@ const char *runtime_current_scene_path(void) {
         return Null;
 
     return runtime_state.current_scene_path;
+}
+
+result runtime_ui_node_exists(const char *document_id, const char *node_id) {
+    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id || !node_id)
+        return Err;
+
+    return ui_runtime_node_exists(runtime_state.ui_runtime, document_id, node_id);
+}
+
+result runtime_ui_set_visible(const char *document_id, const char *node_id, boolean visible) {
+    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id || !node_id)
+        return Err;
+
+    return ui_runtime_set_node_visible(runtime_state.ui_runtime, document_id, node_id, visible);
+}
+
+result runtime_ui_set_text(const char *document_id, const char *node_id, const char *text) {
+    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id || !node_id || !text)
+        return Err;
+
+    return ui_runtime_set_node_text(runtime_state.ui_runtime, document_id, node_id, text);
 }
