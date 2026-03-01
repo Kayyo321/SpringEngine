@@ -40,7 +40,19 @@ void actor_init(Actor *actor, char *id, boolean enabled, int layer) {
     if (!actor)
         return;
 
-    actor->id = id;
+    actor->id_heap = NullHeap;
+    actor->id = Null;
+    if (id) {
+        const usize id_length = strlen(id) + 1;
+        actor->id_heap = allocate(id_length, sizeof(char));
+        actor->id = (char *)actor->id_heap.pointer;
+        if (!actor->id) {
+            log_err("Failed to allocate actor id for '%s'", id);
+        } else {
+            memcpy(actor->id, id, id_length);
+        }
+    }
+
     actor->enabled = enabled;
     actor->layer = layer;
     actor_transform_reset(actor);
@@ -54,9 +66,14 @@ void actor_dispose(Actor *actor) {
     if (!actor)
         return;
 
+    if (actor->id_heap.pointer)
+        deallocate(actor->id_heap);
+
     if (actor->components_heap.pointer)
         deallocate(actor->components_heap);
 
+    actor->id_heap = NullHeap;
+    actor->id = Null;
     actor->components_heap = NullHeap;
     actor->components = Null;
     actor->component_count = 0;
@@ -163,6 +180,11 @@ Actor *actor_registry_create_actor(ActorRegistry *registry, char *id, boolean en
 
     Actor *actor = &registry->actors[registry->actor_count++];
     actor_init(actor, id, enabled, layer);
+    if (!actor->id) {
+        actor_dispose(actor);
+        --registry->actor_count;
+        return Null;
+    }
 
     return actor;
 }

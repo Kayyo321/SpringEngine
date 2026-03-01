@@ -581,6 +581,17 @@ static Vector3 actor_visual_anchor_position(Actor *actor) {
     return anchor_position;
 }
 
+static Vector3 actor_world_position(Actor *actor) {
+    Vector3 position = {0.0f, 0.0f, 0.0f};
+    if (!actor)
+        return position;
+
+    position.x = actor->transform.position.x;
+    position.y = actor->transform.position.y;
+    position.z = actor->transform.position.z;
+    return position;
+}
+
 static int lua_actor_get_position(lua_State *lua_state) {
     const char *actor_id = luaL_checkstring(lua_state, 1);
     Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
@@ -1003,12 +1014,12 @@ static int lua_camera_look_at_actor(lua_State *lua_state) {
     if (!target_actor)
         return 0;
 
-    const Vector3 anchor = actor_visual_anchor_position(target_actor);
+    const Vector3 target_position = actor_world_position(target_actor);
 
     camera->camera.target = (Vector3){
-        anchor.x,
-        anchor.y,
-        anchor.z,
+        target_position.x,
+        target_position.y,
+        target_position.z,
     };
 
     return 0;
@@ -1035,11 +1046,11 @@ static int lua_camera_lerp_towards_actor(lua_State *lua_state) {
     if (!target_actor)
         return 0;
 
-    const Vector3 anchor = actor_visual_anchor_position(target_actor);
+    const Vector3 target_position = actor_world_position(target_actor);
 
-    const float desired_x = anchor.x + offset_x;
-    const float desired_y = anchor.y + offset_y;
-    const float desired_z = anchor.z + offset_z;
+    const float desired_x = target_position.x + offset_x;
+    const float desired_y = target_position.y + offset_y;
+    const float desired_z = target_position.z + offset_z;
 
     actor->transform.position.x += (desired_x - actor->transform.position.x) * alpha;
     actor->transform.position.y += (desired_y - actor->transform.position.y) * alpha;
@@ -1051,9 +1062,9 @@ static int lua_camera_lerp_towards_actor(lua_State *lua_state) {
         actor->transform.position.z,
     };
     camera->camera.target = (Vector3){
-        anchor.x,
-        anchor.y,
-        anchor.z,
+        target_position.x,
+        target_position.y,
+        target_position.z,
     };
 
     return 0;

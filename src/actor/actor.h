@@ -39,6 +39,7 @@ struct ActorComponent {
 };
 
 struct Actor {
+    Heap id_heap;
     char *id;
     boolean enabled;
     int layer;
