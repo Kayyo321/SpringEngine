@@ -673,6 +673,42 @@ static result animated_sprite_component_initialize(Actor *actor, ActorComponent 
         goto cleanup;
     }
 
+    state->flip_x = False;
+    state->flip_y = False;
+    state->auto_flip_x_from_actor_movement = False;
+    state->flip_x_param[0] = '\0';
+    state->flip_x_deadzone = 0.01f;
+    state->flip_x_when_param_negative = True;
+
+    toml_datum_t flip_x = toml_get(animation_table, "flip_x");
+    if (flip_x.type == TOML_BOOLEAN)
+        state->flip_x = flip_x.u.boolean ? True : False;
+
+    toml_datum_t flip_y = toml_get(animation_table, "flip_y");
+    if (flip_y.type == TOML_BOOLEAN)
+        state->flip_y = flip_y.u.boolean ? True : False;
+
+    toml_datum_t flip_x_from_actor_movement = toml_get(animation_table, "flip_x_from_actor_movement");
+    if (flip_x_from_actor_movement.type == TOML_BOOLEAN)
+        state->auto_flip_x_from_actor_movement = flip_x_from_actor_movement.u.boolean ? True : False;
+
+    toml_datum_t flip_x_param = toml_get(animation_table, "flip_x_param");
+    if (flip_x_param.type == TOML_STRING && flip_x_param.u.s && flip_x_param.u.s[0] != '\0') {
+        if (snprintf(state->flip_x_param, sizeof(state->flip_x_param), "%s", flip_x_param.u.s) >= (int)sizeof(state->flip_x_param)) {
+            log_err("Animated sprite config '%s' has flip_x_param that is too long", state->resolved_anim_path);
+            goto cleanup;
+        }
+    }
+
+    toml_datum_t flip_x_deadzone = toml_get(animation_table, "flip_x_deadzone");
+    float flip_deadzone_value = 0.0f;
+    if (toml_number_to_float(flip_x_deadzone, &flip_deadzone_value) && flip_deadzone_value >= 0.0f)
+        state->flip_x_deadzone = flip_deadzone_value;
+
+    toml_datum_t flip_x_when_param_negative = toml_get(animation_table, "flip_x_when_param_negative");
+    if (flip_x_when_param_negative.type == TOML_BOOLEAN)
+        state->flip_x_when_param_negative = flip_x_when_param_negative.u.boolean ? True : False;
+
     for (int sheet_index = 0; sheet_index < sheets_table.u.tab.size; ++sheet_index) {
         if (state->sheet_count >= AnimatedSpriteMaxSheets) {
             log_err("Animated sprite config '%s' exceeded max sheet count (%d)", state->resolved_anim_path, AnimatedSpriteMaxSheets);
@@ -906,10 +942,29 @@ static void animated_sprite_component_update(AnimatedSpriteState *state, float d
             const float delta_y = current_position.y - state->previous_actor_position.y;
             const float delta_z = current_position.z - state->previous_actor_position.z;
             movement_speed = sqrtf((delta_x * delta_x) + (delta_y * delta_y) + (delta_z * delta_z)) / delta_time;
+
+            if (state->auto_flip_x_from_actor_movement) {
+                const float velocity_x = delta_x / delta_time;
+                if (velocity_x <= -state->flip_x_deadzone)
+                    state->flip_x = state->flip_x_when_param_negative;
+                else if (velocity_x >= state->flip_x_deadzone)
+                    state->flip_x = state->flip_x_when_param_negative ? False : True;
+            }
         }
 
         state->previous_actor_position = current_position;
         state->has_previous_actor_position = True;
+    }
+
+    if (state->flip_x_param[0] != '\0') {
+        boolean has_flip_param = False;
+        const float flip_param_value = animated_sprite_get_number_param(state, state->flip_x_param, &has_flip_param);
+        if (has_flip_param) {
+            if (flip_param_value <= -state->flip_x_deadzone)
+                state->flip_x = state->flip_x_when_param_negative;
+            else if (flip_param_value >= state->flip_x_deadzone)
+                state->flip_x = state->flip_x_when_param_negative ? False : True;
+        }
     }
 
     if (state_definition->transition_count > 0) {
@@ -976,6 +1031,17 @@ static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraCom
         return;
 
     const AnimatedSpriteSheet *sheet = &state->sheets[state_definition->sheet_index];
+    Rectangle source = frame->source;
+
+    if (state->flip_x) {
+        source.x += source.width;
+        source.width = -source.width;
+    }
+
+    if (state->flip_y) {
+        source.y += source.height;
+        source.height = -source.height;
+    }
 
     float actor_x = 0.0f;
     float actor_y = 0.0f;
@@ -1024,7 +1090,7 @@ static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraCom
         anchor.y = destination.height * 0.5f;
     }
 
-    DrawTexturePro(sheet->texture, frame->source, destination, anchor, state->rotation, state->tint);
+    DrawTexturePro(sheet->texture, source, destination, anchor, state->rotation, state->tint);
 }
 
 static void animated_sprite_component_dispose(AnimatedSpriteState *state) {

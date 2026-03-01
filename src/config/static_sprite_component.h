@@ -95,6 +95,12 @@ typedef struct {
     int bool_param_count;
     AnimatedSpriteNumberParam number_params[AnimatedSpriteMaxNumberParams];
     int number_param_count;
+    boolean flip_x;
+    boolean flip_y;
+    boolean auto_flip_x_from_actor_movement;
+    char flip_x_param[AnimatedSpriteMaxStateName];
+    float flip_x_deadzone;
+    boolean flip_x_when_param_negative;
     int current_state_index;
     int current_frame_offset;
     float frame_timer;

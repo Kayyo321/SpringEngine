@@ -81,6 +81,8 @@ Current built-in script-facing component handle:
 	- `get(param_name)`
 	- `set_number(param_name, number)`
 	- `get_number(param_name)`
+	- `set_flip_x(enabled)`
+	- `get_flip_x()`
 
 Cross-actor lookup is also exposed through:
 

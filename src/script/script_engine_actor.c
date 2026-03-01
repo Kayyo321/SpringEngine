@@ -210,6 +210,39 @@ static int lua_actor_component_animconf_get_number(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_actor_component_animconf_set_flip_x(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    const boolean value = lua_toboolean(lua_state, value_index) ? True : False;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    AnimatedSpriteState *state = find_actor_animated_sprite(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->flip_x = value;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_animconf_get_flip_x(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    AnimatedSpriteState *state = find_actor_animated_sprite(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->flip_x ? 1 : 0);
+    return 1;
+}
+
 static int lua_actor_get_component(lua_State *lua_state) {
     const char *actor_id = luaL_checkstring(lua_state, 1);
     const char *requested_component = luaL_checkstring(lua_state, 2);
@@ -249,6 +282,14 @@ static int lua_actor_get_component(lua_State *lua_state) {
         lua_pushstring(lua_state, actor_id);
         lua_pushcclosure(lua_state, lua_actor_component_animconf_get_number, 1);
         lua_setfield(lua_state, -2, "get_number");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_animconf_set_flip_x, 1);
+        lua_setfield(lua_state, -2, "set_flip_x");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_animconf_get_flip_x, 1);
+        lua_setfield(lua_state, -2, "get_flip_x");
 
         return 1;
     }

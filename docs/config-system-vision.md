@@ -50,6 +50,8 @@ Actors are Unity-style GameObjects:
    - Optional transition graph under `[State.plug]`, e.g. `[Idle.plug.Walk] condition = "moving"` or `[Walk.plug.Idle] condition = "not_moving"`; optional `speed_threshold` (default `0.01`).
    - Lua-driven bool params are also supported with `condition = "param_true" | "param_false"` and `param = "name"` (set through `AnimConf.set("name", bool)` in scripts).
    - Lua-driven numeric params are supported with `condition = "param_gt" | "param_lt"`, `param = "name"`, and threshold via `speed_threshold` (set through `AnimConf.set_number("name", value)` in scripts).
+   - Sprite flip can be controlled in config with `[Animation]` keys: `flip_x`, `flip_y`, `flip_x_from_actor_movement`, `flip_x_param`, `flip_x_deadzone`, `flip_x_when_param_negative`.
+   - Sprite flip can also be controlled in Lua through `AnimConf.set_flip_x(bool)` / `AnimConf.get_flip_x()`.
 
 ### Identity and Validation
 
