@@ -21,6 +21,7 @@
 *.a
 *.la
 *.lo
+!lib/lua-5.4.6/lib/liblua.a
 
 # Shared objects (inc. Windows DLLs)
 *.dll
