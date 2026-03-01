@@ -174,4 +174,13 @@ Project layout:
 - Clean all object files (`.o`): `make clean`
 - Clean objects + binary: `make fclean`
 
+### Runtime CLI Commands
+
+- Show version: `bin/springengine --version` or `bin/springengine -v`
+- Run project: `bin/springengine --run <project_path>` or `bin/springengine -r <project_path>`
+- Create project skeleton: `bin/springengine --make-proj <path_to_put_it> <project_name>` or `bin/springengine -mp <path_to_put_it> <project_name>`
+- Create script in `<project_root>/scripts`: `bin/springengine --make-script <project_root> <script_name>` or `bin/springengine -ms <project_root> <script_name>`
+- Create scene + scene data in project root: `bin/springengine --make-scene <project_root> <scene_name>` or `bin/springengine -msc <project_root> <scene_name>`
+- Create UI document in `<project_root>/ui`: `bin/springengine --make-ui-doc <project_root> <doc_name>` or `bin/springengine -mud <project_root> <doc_name>`
+
 By default, the binary is generated at `bin/springengine`.
