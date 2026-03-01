@@ -3,6 +3,8 @@ CFLAGS ?= -Wall -Wextra -Wpedantic -Werror -std=c11
 CPPFLAGS ?=
 LDFLAGS ?=
 
+CPPFLAGS += -D_POSIX_C_SOURCE=200809L
+
 SRCDIR := src
 LIBDIR := lib
 OBJDIR := obj
