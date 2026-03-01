@@ -90,6 +90,18 @@ Available modules:
 
 `Scene.load(...)` expects a path relative to `Paths.scenes_dir` (or absolute path).
 
+### UI API (Lua)
+
+`Engine.UI` currently supports:
+
+- `find(document_id, node_id)`
+- `set_visible(handle, visible)`
+- `set_text(handle, text)`
+- `push_document(path)`
+- `pop_document(document_id)`
+- `set_document_layer(document_id, layer)`
+- `current_documents()`
+
 ### Cleanup Verification
 
 SpringEngine already performs global heap cleanup verification on exit through `scan_and_deallocate()` in `src/common.c`.

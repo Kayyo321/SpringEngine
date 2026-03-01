@@ -65,6 +65,8 @@ typedef struct {
 typedef struct {
     char id[128];
     UiLifetime lifetime;
+    int layer;
+    usize stack_order;
 
     Heap widgets_heap;
     UiWidget *widgets;
@@ -82,6 +84,7 @@ struct UiRuntime {
     UiDocument *documents;
     usize document_count;
     usize document_capacity;
+    usize next_stack_order;
 };
 
 static result ui_runtime_init(UiRuntime *runtime, const char *project_root, const char *ui_root, ScriptRuntime *script_runtime);
@@ -96,9 +99,12 @@ static result ensure_document_capacity(UiRuntime *runtime, usize required_capaci
 static result ensure_widget_capacity(UiDocument *document, usize required_capacity);
 
 static result parse_ui_document(UiRuntime *runtime, const char *document_path, UiDocument *out_document);
+static result load_document_from_path(UiRuntime *runtime, const char *document_path, boolean prefer_top_layer);
 static result parse_widget_table(UiRuntime *runtime, UiWidget *widget, toml_datum_t widget_table);
 static result resolve_widget_parents(UiDocument *document);
 static int find_widget_index_by_id(const UiDocument *document, const char *widget_id);
+static int ui_runtime_max_layer(const UiRuntime *runtime);
+static int ui_runtime_find_top_document_index(const UiRuntime *runtime, boolean *visited);
 
 static UiRect resolve_widget_rect(const UiDocument *document, usize widget_index, UiRect screen_rect, int *stack_state);
 static void draw_widget(UiWidget *widget, UiRect rect);
@@ -233,6 +239,7 @@ static void ui_document_init(UiDocument *document) {
 
     memset(document, 0, sizeof(*document));
     document->lifetime = UiLifetimeScene;
+    document->layer = 0;
 }
 
 result ui_runtime_create(UiRuntime **out_runtime, const char *project_root, const char *ui_root, ScriptRuntime *script_runtime) {
@@ -284,6 +291,7 @@ static result ui_runtime_init(UiRuntime *runtime, const char *project_root, cons
     runtime->documents = Null;
     runtime->document_count = 0;
     runtime->document_capacity = 0;
+    runtime->next_stack_order = 1;
 
     return Ok;
 }
@@ -357,33 +365,8 @@ result ui_runtime_load_scene_documents(UiRuntime *runtime, toml_datum_t scene_to
             return Err;
         }
 
-        UiDocument parsed_document;
-        ui_document_init(&parsed_document);
-
-        if (parse_ui_document(runtime, document_path, &parsed_document) != Ok) {
-            ui_document_dispose(&parsed_document);
+        if (load_document_from_path(runtime, document_path, False) != Ok)
             return Err;
-        }
-
-        UiDocument *existing_document = find_document_by_id(runtime, parsed_document.id);
-        if (existing_document) {
-            if (existing_document->lifetime == UiLifetimeGame && parsed_document.lifetime == UiLifetimeGame) {
-                ui_document_dispose(&parsed_document);
-                continue;
-            }
-
-            log_err("Duplicate UI document id '%s'", parsed_document.id);
-            ui_document_dispose(&parsed_document);
-            return Err;
-        }
-
-        if (ensure_document_capacity(runtime, runtime->document_count + 1) != Ok) {
-            ui_document_dispose(&parsed_document);
-            return Err;
-        }
-
-        runtime->documents[runtime->document_count++] = parsed_document;
-        log_msg("Loaded UI document '%s'", parsed_document.id);
     }
 
     return Ok;
@@ -438,6 +421,91 @@ result ui_runtime_set_node_text(UiRuntime *runtime, const char *document_id, con
     return Ok;
 }
 
+result ui_runtime_push_document(UiRuntime *runtime, const char *document_path) {
+    if (!runtime || !document_path || document_path[0] == '\0')
+        return Err;
+
+    char resolved_document_path[PATH_MAX] = {0};
+    if (join_path(runtime->ui_root, document_path, resolved_document_path, sizeof(resolved_document_path)) != Ok)
+        return Err;
+
+    return load_document_from_path(runtime, resolved_document_path, True);
+}
+
+result ui_runtime_pop_document(UiRuntime *runtime, const char *document_id) {
+    if (!runtime || !document_id || document_id[0] == '\0')
+        return Err;
+
+    for (usize index = 0; index < runtime->document_count; ++index) {
+        UiDocument *document = &runtime->documents[index];
+        if (strcmp(document->id, document_id) != 0)
+            continue;
+
+        ui_document_dispose(document);
+
+        for (usize move_index = index + 1; move_index < runtime->document_count; ++move_index)
+            runtime->documents[move_index - 1] = runtime->documents[move_index];
+
+        runtime->document_count--;
+        return Ok;
+    }
+
+    return Err;
+}
+
+result ui_runtime_set_document_layer(UiRuntime *runtime, const char *document_id, int layer) {
+    if (!runtime || !document_id || document_id[0] == '\0')
+        return Err;
+
+    UiDocument *document = find_document_by_id(runtime, document_id);
+    if (!document)
+        return Err;
+
+    document->layer = layer;
+    return Ok;
+}
+
+result ui_runtime_get_document_count(UiRuntime *runtime, usize *out_count) {
+    if (!runtime || !out_count)
+        return Err;
+
+    *out_count = runtime->document_count;
+    return Ok;
+}
+
+result ui_runtime_get_document_id_at(UiRuntime *runtime, usize index, const char **out_document_id) {
+    if (!runtime || !out_document_id)
+        return Err;
+
+    if (index >= runtime->document_count)
+        return Err;
+
+    Heap visited_heap = allocate(runtime->document_count, sizeof(boolean));
+    boolean *visited = (boolean *)visited_heap.pointer;
+    if (!visited)
+        return Err;
+
+    memset(visited, 0, runtime->document_count * sizeof(boolean));
+
+    int found_index = -1;
+    for (usize order_index = 0; order_index <= index; ++order_index) {
+        found_index = ui_runtime_find_top_document_index(runtime, visited);
+        if (found_index < 0)
+            break;
+
+        visited[found_index] = True;
+    }
+
+    if (found_index < 0) {
+        deallocate(visited_heap);
+        return Err;
+    }
+
+    *out_document_id = runtime->documents[found_index].id;
+    deallocate(visited_heap);
+    return Ok;
+}
+
 void ui_runtime_draw(UiRuntime *runtime) {
     if (!runtime)
         return;
@@ -449,13 +517,35 @@ void ui_runtime_draw(UiRuntime *runtime) {
         (float)GetScreenHeight(),
     };
 
-    for (usize document_index = 0; document_index < runtime->document_count; ++document_index) {
-        UiDocument *document = &runtime->documents[document_index];
+    if (runtime->document_count == 0)
+        return;
+
+    Vector2 mouse_position = GetMousePosition();
+    const boolean click_pressed = IsMouseButtonPressed(MOUSE_LEFT_BUTTON) ? True : False;
+
+    Heap visited_heap = allocate(runtime->document_count, sizeof(boolean));
+    boolean *visited = (boolean *)visited_heap.pointer;
+    if (!visited)
+        return;
+
+    memset(visited, 0, runtime->document_count * sizeof(boolean));
+
+    int clicked_document_index = -1;
+    int clicked_button_index = -1;
+    int clicked_document_layer = -2147483647;
+    usize clicked_document_stack = 0;
+    int clicked_button_z = -2147483647;
+
+    for (usize draw_order = 0; draw_order < runtime->document_count; ++draw_order) {
+        const int ordered_document_index = ui_runtime_find_top_document_index(runtime, visited);
+        if (ordered_document_index < 0)
+            break;
+
+        visited[ordered_document_index] = True;
+
+        UiDocument *document = &runtime->documents[ordered_document_index];
         if (!document->widgets || document->widget_count == 0)
             continue;
-
-        Vector2 mouse_position = GetMousePosition();
-        const boolean click_pressed = IsMouseButtonPressed(MOUSE_LEFT_BUTTON) ? True : False;
 
         Heap stack_heap = allocate(document->widget_count, sizeof(int));
         int *stack_state = (int *)stack_heap.pointer;
@@ -464,8 +554,8 @@ void ui_runtime_draw(UiRuntime *runtime) {
 
         memset(stack_state, 0, document->widget_count * sizeof(int));
 
-        int clicked_button_index = -1;
-        int clicked_button_z = -2147483647;
+        int document_clicked_button_index = -1;
+        int document_clicked_button_z = -2147483647;
 
         for (usize widget_index = 0; widget_index < document->widget_count; ++widget_index) {
             UiWidget *widget = &document->widgets[widget_index];
@@ -476,26 +566,43 @@ void ui_runtime_draw(UiRuntime *runtime) {
             draw_widget(widget, rect);
 
             if (widget->type == UiWidgetButton && point_in_rect(mouse_position, rect)) {
-                if (widget->z > clicked_button_z || (widget->z == clicked_button_z && (int)widget_index > clicked_button_index)) {
-                    clicked_button_z = widget->z;
-                    clicked_button_index = (int)widget_index;
+                if (widget->z > document_clicked_button_z || (widget->z == document_clicked_button_z && (int)widget_index > document_clicked_button_index)) {
+                    document_clicked_button_z = widget->z;
+                    document_clicked_button_index = (int)widget_index;
                 }
             }
         }
 
-        if (click_pressed && clicked_button_index >= 0) {
-            UiWidget *button = &document->widgets[clicked_button_index];
-            if (button->on_click[0] != '\0') {
-                if (!runtime->script_runtime) {
-                    log_warn("UI button '%s' click ignored; script runtime unavailable", button->id);
-                } else {
-                    (void)script_runtime_invoke_ui_callback(runtime->script_runtime, button->on_click, document->id, button->id);
-                }
+        if (document_clicked_button_index >= 0) {
+            UiWidget *button = &document->widgets[document_clicked_button_index];
+            if (document->layer > clicked_document_layer
+                || (document->layer == clicked_document_layer && document->stack_order > clicked_document_stack)
+                || (document->layer == clicked_document_layer && document->stack_order == clicked_document_stack && button->z > clicked_button_z)) {
+                clicked_document_index = ordered_document_index;
+                clicked_button_index = document_clicked_button_index;
+                clicked_document_layer = document->layer;
+                clicked_document_stack = document->stack_order;
+                clicked_button_z = button->z;
             }
         }
 
         deallocate(stack_heap);
     }
+
+    if (click_pressed && clicked_document_index >= 0) {
+        UiDocument *clicked_document = &runtime->documents[clicked_document_index];
+        UiWidget *button = &clicked_document->widgets[clicked_button_index];
+
+        if (button->on_click[0] != '\0') {
+            if (!runtime->script_runtime) {
+                log_warn("UI button '%s' click ignored; script runtime unavailable", button->id);
+            } else {
+                (void)script_runtime_invoke_ui_callback(runtime->script_runtime, button->on_click, clicked_document->id, button->id);
+            }
+        }
+    }
+
+    deallocate(visited_heap);
 }
 
 static UiDocument *find_document_by_id(UiRuntime *runtime, const char *document_id) {
@@ -508,6 +615,87 @@ static UiDocument *find_document_by_id(UiRuntime *runtime, const char *document_
     }
 
     return Null;
+}
+
+static int ui_runtime_max_layer(const UiRuntime *runtime) {
+    if (!runtime || runtime->document_count == 0)
+        return 0;
+
+    int max_layer = runtime->documents[0].layer;
+    for (usize index = 1; index < runtime->document_count; ++index) {
+        if (runtime->documents[index].layer > max_layer)
+            max_layer = runtime->documents[index].layer;
+    }
+
+    return max_layer;
+}
+
+static int ui_runtime_find_top_document_index(const UiRuntime *runtime, boolean *visited) {
+    if (!runtime || !visited)
+        return -1;
+
+    int selected_index = -1;
+    for (usize index = 0; index < runtime->document_count; ++index) {
+        if (visited[index])
+            continue;
+
+        if (selected_index < 0) {
+            selected_index = (int)index;
+            continue;
+        }
+
+        const UiDocument *candidate = &runtime->documents[index];
+        const UiDocument *selected = &runtime->documents[selected_index];
+
+        if (candidate->layer < selected->layer) {
+            selected_index = (int)index;
+            continue;
+        }
+
+        if (candidate->layer == selected->layer && candidate->stack_order < selected->stack_order)
+            selected_index = (int)index;
+    }
+
+    return selected_index;
+}
+
+static result load_document_from_path(UiRuntime *runtime, const char *document_path, boolean prefer_top_layer) {
+    if (!runtime || !document_path || document_path[0] == '\0')
+        return Err;
+
+    UiDocument parsed_document;
+    ui_document_init(&parsed_document);
+
+    if (parse_ui_document(runtime, document_path, &parsed_document) != Ok) {
+        ui_document_dispose(&parsed_document);
+        return Err;
+    }
+
+    UiDocument *existing_document = find_document_by_id(runtime, parsed_document.id);
+    if (existing_document) {
+        if (existing_document->lifetime == UiLifetimeGame && parsed_document.lifetime == UiLifetimeGame) {
+            ui_document_dispose(&parsed_document);
+            return Ok;
+        }
+
+        log_err("Duplicate UI document id '%s'", parsed_document.id);
+        ui_document_dispose(&parsed_document);
+        return Err;
+    }
+
+    if (prefer_top_layer)
+        parsed_document.layer = ui_runtime_max_layer(runtime) + 1;
+
+    parsed_document.stack_order = runtime->next_stack_order++;
+
+    if (ensure_document_capacity(runtime, runtime->document_count + 1) != Ok) {
+        ui_document_dispose(&parsed_document);
+        return Err;
+    }
+
+    runtime->documents[runtime->document_count++] = parsed_document;
+    log_msg("Loaded UI document '%s'", parsed_document.id);
+    return Ok;
 }
 
 static void ui_document_dispose(UiDocument *document) {
@@ -629,6 +817,10 @@ static result parse_ui_document(UiRuntime *runtime, const char *document_path, U
             return Err;
         }
     }
+
+    toml_datum_t layer = toml_get(ui_table, "layer");
+    if (layer.type == TOML_INT64)
+        out_document->layer = (int)layer.u.int64;
 
     toml_datum_t widgets = toml_get(parsed.toptab, "Widgets");
     if (widgets.type != TOML_ARRAY) {

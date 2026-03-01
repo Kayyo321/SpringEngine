@@ -73,10 +73,55 @@ static int lua_ui_set_text(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_ui_push_document(lua_State *lua_state) {
+    const char *document_path = luaL_checkstring(lua_state, 1);
+    lua_pushboolean(lua_state, runtime_ui_push_document(document_path) == Ok ? 1 : 0);
+    return 1;
+}
+
+static int lua_ui_pop_document(lua_State *lua_state) {
+    const char *document_id = luaL_checkstring(lua_state, 1);
+    lua_pushboolean(lua_state, runtime_ui_pop_document(document_id) == Ok ? 1 : 0);
+    return 1;
+}
+
+static int lua_ui_set_document_layer(lua_State *lua_state) {
+    const char *document_id = luaL_checkstring(lua_state, 1);
+    const int layer = (int)luaL_checkinteger(lua_state, 2);
+    lua_pushboolean(lua_state, runtime_ui_set_document_layer(document_id, layer) == Ok ? 1 : 0);
+    return 1;
+}
+
+static int lua_ui_current_documents(lua_State *lua_state) {
+    usize document_count = 0;
+    if (runtime_ui_get_document_count(&document_count) != Ok) {
+        lua_newtable(lua_state);
+        return 1;
+    }
+
+    lua_newtable(lua_state);
+
+    int output_index = 1;
+    for (usize index = 0; index < document_count; ++index) {
+        const char *document_id = runtime_ui_get_document_id_at(index);
+        if (!document_id)
+            continue;
+
+        lua_pushstring(lua_state, document_id);
+        lua_rawseti(lua_state, -2, output_index++);
+    }
+
+    return 1;
+}
+
 static const luaL_Reg ui_methods[] = {
     {"find", lua_ui_find},
     {"set_visible", lua_ui_set_visible},
     {"set_text", lua_ui_set_text},
+    {"push_document", lua_ui_push_document},
+    {"pop_document", lua_ui_pop_document},
+    {"set_document_layer", lua_ui_set_document_layer},
+    {"current_documents", lua_ui_current_documents},
     {NULL, NULL},
 };
 

@@ -9,5 +9,10 @@ const char *runtime_current_scene_path(void);
 result runtime_ui_node_exists(const char *document_id, const char *node_id);
 result runtime_ui_set_visible(const char *document_id, const char *node_id, boolean visible);
 result runtime_ui_set_text(const char *document_id, const char *node_id, const char *text);
+result runtime_ui_push_document(const char *document_path);
+result runtime_ui_pop_document(const char *document_id);
+result runtime_ui_set_document_layer(const char *document_id, int layer);
+result runtime_ui_get_document_count(usize *out_count);
+const char *runtime_ui_get_document_id_at(usize index);
 
 #endif // RUNTIME_LOADER_H
