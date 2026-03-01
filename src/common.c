@@ -1,3 +1,4 @@
+#define COMMON_ALLOW_STDLIB_ALLOCATORS
 #include "common.h"
 
 #include <stdio.h>

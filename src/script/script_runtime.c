@@ -1,6 +1,7 @@
 #include "script_runtime.h"
 
 #include "actor/camera_component.h"
+#include "config/runtime_loader.h"
 #include "config/static_sprite_component.h"
 #include "common.h"
 
@@ -613,6 +614,135 @@ static int lua_actor_get_anchor_position(lua_State *lua_state) {
     return 3;
 }
 
+static void lua_scene_push_actor_table(lua_State *lua_state, Actor *actor) {
+    if (!lua_state || !actor) {
+        lua_pushnil(lua_state);
+        return;
+    }
+
+    lua_newtable(lua_state);
+
+    lua_pushstring(lua_state, actor->id ? actor->id : "");
+    lua_setfield(lua_state, -2, "id");
+
+    lua_pushboolean(lua_state, actor->enabled ? 1 : 0);
+    lua_setfield(lua_state, -2, "enabled");
+
+    lua_pushinteger(lua_state, actor->layer);
+    lua_setfield(lua_state, -2, "layer");
+
+    lua_newtable(lua_state);
+    lua_pushnumber(lua_state, actor->transform.position.x);
+    lua_setfield(lua_state, -2, "x");
+    lua_pushnumber(lua_state, actor->transform.position.y);
+    lua_setfield(lua_state, -2, "y");
+    lua_pushnumber(lua_state, actor->transform.position.z);
+    lua_setfield(lua_state, -2, "z");
+    lua_setfield(lua_state, -2, "position");
+}
+
+static int lua_scene_find_by_id(lua_State *lua_state) {
+    const char *actor_id = luaL_checkstring(lua_state, 1);
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    if (!actor) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_scene_push_actor_table(lua_state, actor);
+    return 1;
+}
+
+static int lua_scene_find_first_by_layer(lua_State *lua_state) {
+    const int layer = (int)luaL_checkinteger(lua_state, 1);
+    const boolean include_disabled = lua_toboolean(lua_state, 2) ? True : False;
+
+    ScriptRuntime *runtime = lua_runtime_instance(lua_state);
+    if (!runtime || !runtime->actor_registry) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    for (usize index = 0; index < runtime->actor_registry->actor_count; ++index) {
+        Actor *actor = &runtime->actor_registry->actors[index];
+        if (actor->layer != layer)
+            continue;
+
+        if (!include_disabled && !actor->enabled)
+            continue;
+
+        lua_scene_push_actor_table(lua_state, actor);
+        return 1;
+    }
+
+    lua_pushnil(lua_state);
+    return 1;
+}
+
+static int lua_scene_find_all_by_layer(lua_State *lua_state) {
+    const int layer = (int)luaL_checkinteger(lua_state, 1);
+    const boolean include_disabled = lua_toboolean(lua_state, 2) ? True : False;
+
+    ScriptRuntime *runtime = lua_runtime_instance(lua_state);
+    lua_newtable(lua_state);
+
+    if (!runtime || !runtime->actor_registry)
+        return 1;
+
+    int output_index = 1;
+    for (usize index = 0; index < runtime->actor_registry->actor_count; ++index) {
+        Actor *actor = &runtime->actor_registry->actors[index];
+        if (actor->layer != layer)
+            continue;
+
+        if (!include_disabled && !actor->enabled)
+            continue;
+
+        lua_scene_push_actor_table(lua_state, actor);
+        lua_rawseti(lua_state, -2, output_index++);
+    }
+
+    return 1;
+}
+
+static int lua_scene_actor_count(lua_State *lua_state) {
+    const boolean include_disabled = lua_toboolean(lua_state, 1) ? True : False;
+
+    ScriptRuntime *runtime = lua_runtime_instance(lua_state);
+    if (!runtime || !runtime->actor_registry) {
+        lua_pushinteger(lua_state, 0);
+        return 1;
+    }
+
+    usize count = 0;
+    for (usize index = 0; index < runtime->actor_registry->actor_count; ++index) {
+        Actor *actor = &runtime->actor_registry->actors[index];
+        if (!include_disabled && !actor->enabled)
+            continue;
+        count++;
+    }
+
+    lua_pushinteger(lua_state, (lua_Integer)count);
+    return 1;
+}
+
+static int lua_scene_load(lua_State *lua_state) {
+    const char *scene_path = luaL_checkstring(lua_state, 1);
+    lua_pushboolean(lua_state, runtime_request_scene_load(scene_path) == Ok ? 1 : 0);
+    return 1;
+}
+
+static int lua_scene_current(lua_State *lua_state) {
+    const char *scene_path = runtime_current_scene_path();
+    if (!scene_path) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushstring(lua_state, scene_path);
+    return 1;
+}
+
 static result lua_camera_get_current(lua_State *lua_state, Actor **out_actor, CameraComponentData **out_camera) {
     if (!out_actor || !out_camera)
         return Err;
@@ -1022,95 +1152,114 @@ static int lua_transform_get_scale(lua_State *lua_state) {
     return 3;
 }
 
-static result register_input_library(ScriptRuntime *runtime) {
-    if (!runtime || !runtime->lua_state)
-        return Err;
+static const luaL_Reg input_methods[] = {
+    {"current_schema", lua_input_current_schema},
+    {"set_schema", lua_input_set_schema},
+    {"accepted", lua_input_accepted},
+    {"is_key_down", lua_input_is_key_down},
+    {"was_key_pressed", lua_input_was_key_pressed},
+    {NULL, NULL},
+};
 
-    static const luaL_Reg input_methods[] = {
-        {"current_schema", lua_input_current_schema},
-        {"set_schema", lua_input_set_schema},
-        {"accepted", lua_input_accepted},
-        {"is_key_down", lua_input_is_key_down},
-        {"was_key_pressed", lua_input_was_key_pressed},
-        {NULL, NULL},
-    };
+static const luaL_Reg transform_methods[] = {
+    {"translate", lua_transform_translate},
+    {"set_position", lua_transform_set_position},
+    {"get_position", lua_transform_get_position},
+    {"set_rotation_euler", lua_transform_set_rotation_euler},
+    {"get_rotation_euler", lua_transform_get_rotation_euler},
+    {"set_scale", lua_transform_set_scale},
+    {"get_scale", lua_transform_get_scale},
+    {NULL, NULL},
+};
 
-    lua_pushlightuserdata(runtime->lua_state, runtime);
-    lua_setfield(runtime->lua_state, LUA_REGISTRYINDEX, RUNTIME_REGISTRY_KEY);
+static const luaL_Reg actor_methods[] = {
+    {"get_position", lua_actor_get_position},
+    {"get_anchor_position", lua_actor_get_anchor_position},
+    {NULL, NULL},
+};
 
-    lua_newtable(runtime->lua_state);
-    luaL_setfuncs(runtime->lua_state, input_methods, 0);
-    lua_setglobal(runtime->lua_state, "Input");
+static const luaL_Reg camera_methods[] = {
+    {"set_position", lua_camera_set_position},
+    {"get_position", lua_camera_get_position},
+    {"translate", lua_camera_translate},
+    {"set_target", lua_camera_set_target},
+    {"get_target", lua_camera_get_target},
+    {"set_up", lua_camera_set_up},
+    {"get_up", lua_camera_get_up},
+    {"set_fov_y", lua_camera_set_fov_y},
+    {"get_fov_y", lua_camera_get_fov_y},
+    {"set_projection", lua_camera_set_projection},
+    {"get_projection", lua_camera_get_projection},
+    {"set_active", lua_camera_set_active},
+    {"get_active", lua_camera_get_active},
+    {"set_clipping", lua_camera_set_clipping},
+    {"get_clipping", lua_camera_get_clipping},
+    {"look_at_actor", lua_camera_look_at_actor},
+    {"lerp_towards_actor", lua_camera_lerp_towards_actor},
+    {NULL, NULL},
+};
 
-    return Ok;
+static const luaL_Reg scene_methods[] = {
+    {"find_by_id", lua_scene_find_by_id},
+    {"find_first_by_layer", lua_scene_find_first_by_layer},
+    {"find_all_by_layer", lua_scene_find_all_by_layer},
+    {"actor_count", lua_scene_actor_count},
+    {"load", lua_scene_load},
+    {"current", lua_scene_current},
+    {NULL, NULL},
+};
+
+static int lua_engine_log(lua_State *lua_state) {
+    const char *message = luaL_checkstring(lua_state, 1);
+    log_msg("[Lua] %s", message ? message : "");
+    return 0;
 }
 
-static result register_transform_library(ScriptRuntime *runtime) {
-    if (!runtime || !runtime->lua_state)
-        return Err;
-
-    static const luaL_Reg transform_methods[] = {
-        {"translate", lua_transform_translate},
-        {"set_position", lua_transform_set_position},
-        {"get_position", lua_transform_get_position},
-        {"set_rotation_euler", lua_transform_set_rotation_euler},
-        {"get_rotation_euler", lua_transform_get_rotation_euler},
-        {"set_scale", lua_transform_set_scale},
-        {"get_scale", lua_transform_get_scale},
-        {NULL, NULL},
-    };
-
-    lua_newtable(runtime->lua_state);
-    luaL_setfuncs(runtime->lua_state, transform_methods, 0);
-    lua_setglobal(runtime->lua_state, "Transform");
-    return Ok;
+static int lua_engine_warn(lua_State *lua_state) {
+    const char *message = luaL_checkstring(lua_state, 1);
+    log_warn("[Lua] %s", message ? message : "");
+    return 0;
 }
 
-static result register_actor_library(ScriptRuntime *runtime) {
-    if (!runtime || !runtime->lua_state)
-        return Err;
-
-    static const luaL_Reg actor_methods[] = {
-        {"get_position", lua_actor_get_position},
-        {"get_anchor_position", lua_actor_get_anchor_position},
-        {NULL, NULL},
-    };
-
-    lua_newtable(runtime->lua_state);
-    luaL_setfuncs(runtime->lua_state, actor_methods, 0);
-    lua_setglobal(runtime->lua_state, "Actor");
-    return Ok;
+static int lua_engine_error(lua_State *lua_state) {
+    const char *message = luaL_checkstring(lua_state, 1);
+    log_err("[Lua] %s", message ? message : "");
+    return 0;
 }
 
-static result register_camera_library(ScriptRuntime *runtime) {
-    if (!runtime || !runtime->lua_state)
-        return Err;
+static int lua_engine_version(lua_State *lua_state) {
+    lua_pushstring(lua_state, Version);
+    return 1;
+}
 
-    static const luaL_Reg camera_methods[] = {
-        {"set_position", lua_camera_set_position},
-        {"get_position", lua_camera_get_position},
-        {"translate", lua_camera_translate},
-        {"set_target", lua_camera_set_target},
-        {"get_target", lua_camera_get_target},
-        {"set_up", lua_camera_set_up},
-        {"get_up", lua_camera_get_up},
-        {"set_fov_y", lua_camera_set_fov_y},
-        {"get_fov_y", lua_camera_get_fov_y},
-        {"set_projection", lua_camera_set_projection},
-        {"get_projection", lua_camera_get_projection},
-        {"set_active", lua_camera_set_active},
-        {"get_active", lua_camera_get_active},
-        {"set_clipping", lua_camera_set_clipping},
-        {"get_clipping", lua_camera_get_clipping},
-        {"look_at_actor", lua_camera_look_at_actor},
-        {"lerp_towards_actor", lua_camera_lerp_towards_actor},
-        {NULL, NULL},
-    };
+static int luaopen_engine_input(lua_State *lua_state) {
+    lua_newtable(lua_state);
+    luaL_setfuncs(lua_state, input_methods, 0);
+    return 1;
+}
 
-    lua_newtable(runtime->lua_state);
-    luaL_setfuncs(runtime->lua_state, camera_methods, 0);
-    lua_setglobal(runtime->lua_state, "Camera");
-    return Ok;
+static int luaopen_engine_transform(lua_State *lua_state) {
+    lua_newtable(lua_state);
+    luaL_setfuncs(lua_state, transform_methods, 0);
+    return 1;
+}
+
+static int luaopen_engine_actor(lua_State *lua_state) {
+    lua_newtable(lua_state);
+    luaL_setfuncs(lua_state, actor_methods, 0);
+    return 1;
+}
+
+static int luaopen_engine_camera(lua_State *lua_state) {
+    lua_newtable(lua_state);
+    luaL_setfuncs(lua_state, camera_methods, 0);
+    return 1;
+}
+
+static int luaopen_engine_scene(lua_State *lua_state) {
+    lua_newtable(lua_state);
+    luaL_setfuncs(lua_state, scene_methods, 0);
+    return 1;
 }
 
 static result runtime_join_path(const char *base, const char *path, char *out_path, usize out_size) {
@@ -1260,31 +1409,110 @@ static int lua_dj_stop_music(lua_State *lua_state) {
     return 0;
 }
 
-static result register_dj_library(ScriptRuntime *runtime) {
-    if (!runtime || !runtime->lua_state || !runtime->dj)
-        return Ok;
+static const luaL_Reg dj_methods[] = {
+    {"load_sound", lua_dj_load_sound},
+    {"play_sound", lua_dj_play_sound},
+    {"restart_sound", lua_dj_restart_sound},
+    {"stop_sound", lua_dj_stop_sound},
+    {"load_music", lua_dj_load_music},
+    {"play_music", lua_dj_play_music},
+    {"restart_music", lua_dj_restart_music},
+    {"stop_music", lua_dj_stop_music},
+    {NULL, NULL},
+};
 
-    static const luaL_Reg dj_methods[] = {
-        {"load_sound", lua_dj_load_sound},
-        {"play_sound", lua_dj_play_sound},
-        {"restart_sound", lua_dj_restart_sound},
-        {"stop_sound", lua_dj_stop_sound},
-        {"load_music", lua_dj_load_music},
-        {"play_music", lua_dj_play_music},
-        {"restart_music", lua_dj_restart_music},
-        {"stop_music", lua_dj_stop_music},
-        {NULL, NULL},
-    };
+static int luaopen_engine_dj(lua_State *lua_state) {
+    lua_newtable(lua_state);
+    luaL_setfuncs(lua_state, dj_methods, 0);
+    return 1;
+}
 
-    lua_pushlightuserdata(runtime->lua_state, runtime->dj);
+static result register_preload_module(lua_State *lua_state, const char *module_name, lua_CFunction open_fn) {
+    if (!lua_state || !module_name || !open_fn)
+        return Err;
+
+    lua_getglobal(lua_state, "package");
+    if (!lua_istable(lua_state, -1)) {
+        lua_pop(lua_state, 1);
+        return Err;
+    }
+
+    lua_getfield(lua_state, -1, "preload");
+    if (!lua_istable(lua_state, -1)) {
+        lua_pop(lua_state, 2);
+        return Err;
+    }
+
+    lua_pushcfunction(lua_state, open_fn);
+    lua_setfield(lua_state, -2, module_name);
+
+    lua_pop(lua_state, 2);
+    return Ok;
+}
+
+static int luaopen_engine(lua_State *lua_state) {
+    lua_newtable(lua_state);
+
+    lua_pushcfunction(lua_state, lua_engine_log);
+    lua_setfield(lua_state, -2, "log");
+    lua_pushcfunction(lua_state, lua_engine_warn);
+    lua_setfield(lua_state, -2, "warn");
+    lua_pushcfunction(lua_state, lua_engine_error);
+    lua_setfield(lua_state, -2, "error");
+    lua_pushcfunction(lua_state, lua_engine_version);
+    lua_setfield(lua_state, -2, "version");
+
+    luaL_requiref(lua_state, "Engine.Input", luaopen_engine_input, 0);
+    lua_setfield(lua_state, -2, "Input");
+
+    luaL_requiref(lua_state, "Engine.Transform", luaopen_engine_transform, 0);
+    lua_setfield(lua_state, -2, "Transform");
+
+    luaL_requiref(lua_state, "Engine.Actor", luaopen_engine_actor, 0);
+    lua_setfield(lua_state, -2, "Actor");
+
+    luaL_requiref(lua_state, "Engine.Camera", luaopen_engine_camera, 0);
+    lua_setfield(lua_state, -2, "Camera");
+
+    luaL_requiref(lua_state, "Engine.Scene", luaopen_engine_scene, 0);
+    lua_setfield(lua_state, -2, "Scene");
+
+    luaL_requiref(lua_state, "Engine.DJ", luaopen_engine_dj, 0);
+    lua_setfield(lua_state, -2, "DJ");
+
+    return 1;
+}
+
+static result register_engine_libraries(ScriptRuntime *runtime) {
+    if (!runtime || !runtime->lua_state)
+        return Err;
+
+    lua_pushlightuserdata(runtime->lua_state, runtime);
+    lua_setfield(runtime->lua_state, LUA_REGISTRYINDEX, RUNTIME_REGISTRY_KEY);
+
+    if (runtime->dj)
+        lua_pushlightuserdata(runtime->lua_state, runtime->dj);
+    else
+        lua_pushnil(runtime->lua_state);
     lua_setfield(runtime->lua_state, LUA_REGISTRYINDEX, DJ_REGISTRY_KEY);
 
     lua_pushstring(runtime->lua_state, runtime->project_root);
     lua_setfield(runtime->lua_state, LUA_REGISTRYINDEX, PROJECT_ROOT_REGISTRY_KEY);
 
-    lua_newtable(runtime->lua_state);
-    luaL_setfuncs(runtime->lua_state, dj_methods, 0);
-    lua_setglobal(runtime->lua_state, "DJ");
+    if (register_preload_module(runtime->lua_state, "Engine.Input", luaopen_engine_input) != Ok)
+        return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.Transform", luaopen_engine_transform) != Ok)
+        return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.Actor", luaopen_engine_actor) != Ok)
+        return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.Camera", luaopen_engine_camera) != Ok)
+        return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.Scene", luaopen_engine_scene) != Ok)
+        return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.DJ", luaopen_engine_dj) != Ok)
+        return Err;
+    if (register_preload_module(runtime->lua_state, "Engine", luaopen_engine) != Ok)
+        return Err;
 
     return Ok;
 }
@@ -1360,31 +1588,7 @@ result script_runtime_init(ScriptRuntime *runtime, const char *project_root, DJ 
 
     luaL_openlibs(runtime->lua_state);
 
-    if (register_dj_library(runtime) != Ok) {
-        lua_close(runtime->lua_state);
-        runtime->lua_state = Null;
-        return Err;
-    }
-
-    if (register_input_library(runtime) != Ok) {
-        lua_close(runtime->lua_state);
-        runtime->lua_state = Null;
-        return Err;
-    }
-
-    if (register_transform_library(runtime) != Ok) {
-        lua_close(runtime->lua_state);
-        runtime->lua_state = Null;
-        return Err;
-    }
-
-    if (register_actor_library(runtime) != Ok) {
-        lua_close(runtime->lua_state);
-        runtime->lua_state = Null;
-        return Err;
-    }
-
-    if (register_camera_library(runtime) != Ok) {
+    if (register_engine_libraries(runtime) != Ok) {
         lua_close(runtime->lua_state);
         runtime->lua_state = Null;
         return Err;

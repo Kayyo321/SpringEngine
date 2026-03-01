@@ -21,6 +21,11 @@
 #define PATH_MAX 4096
 #endif
 
+enum {
+    RuntimeMaxAutoloadActors = 128,
+    RuntimeMaxAutoloadActorIdLength = 128,
+};
+
 typedef struct {
     ActorRegistry actor_registry;
     DJ dj;
@@ -29,13 +34,25 @@ typedef struct {
     Actor *active_camera_actor;
     boolean dj_enabled;
     boolean active;
+    boolean has_pending_scene_load;
+    usize autoload_actor_count;
     char project_root[PATH_MAX];
+    char scenes_root[PATH_MAX];
+    char prefabs_root[PATH_MAX];
+    char autoload_data_path[PATH_MAX];
+    char current_scene_path[PATH_MAX];
+    char pending_scene_path[PATH_MAX];
+    char autoload_actor_ids[RuntimeMaxAutoloadActors][RuntimeMaxAutoloadActorIdLength];
 } RuntimeState;
 
 static RuntimeState runtime_state;
 
 static result join_path(const char *base, const char *path, char *out_path, usize out_size);
 static result parse_toml_file(const char *path, toml_result_t *out_parsed);
+static result load_autoload_actors(toml_datum_t autoload_toptab);
+static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab, const char *prefabs_root);
+static result load_scene_runtime(const char *scene_path);
+static void process_pending_scene_load(void);
 
 static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     if (!out_number)
@@ -411,25 +428,53 @@ static void camera_component_sync(Actor *actor, CameraComponentData *camera_stat
     };
 }
 
-static boolean contains_autoload_actor_id(toml_datum_t project_toptab, const char *actor_id) {
-    if (project_toptab.type != TOML_TABLE || !actor_id || actor_id[0] == '\0')
+static boolean contains_autoload_actor_id(const char *actor_id) {
+    if (!actor_id || actor_id[0] == '\0')
         return False;
 
-    toml_datum_t persistence = toml_get(project_toptab, "Persistence");
-    if (persistence.type != TOML_TABLE)
-        return False;
-
-    toml_datum_t autoload_actor_ids = toml_get(persistence, "autoload_actor_ids");
-    if (autoload_actor_ids.type != TOML_ARRAY)
-        return False;
-
-    for (int index = 0; index < autoload_actor_ids.u.arr.size; ++index) {
-        toml_datum_t item = autoload_actor_ids.u.arr.elem[index];
-        if (item.type == TOML_STRING && item.u.s && strcmp(item.u.s, actor_id) == 0)
+    for (usize index = 0; index < runtime_state.autoload_actor_count; ++index) {
+        if (strcmp(runtime_state.autoload_actor_ids[index], actor_id) == 0)
             return True;
     }
 
     return False;
+}
+
+static result cache_autoload_actor_ids(toml_datum_t project_toptab) {
+    runtime_state.autoload_actor_count = 0;
+
+    if (project_toptab.type != TOML_TABLE)
+        return Err;
+
+    toml_datum_t persistence = toml_get(project_toptab, "Persistence");
+    if (persistence.type != TOML_TABLE)
+        return Ok;
+
+    toml_datum_t autoload_actor_ids = toml_get(persistence, "autoload_actor_ids");
+    if (autoload_actor_ids.type != TOML_ARRAY)
+        return Ok;
+
+    for (int index = 0; index < autoload_actor_ids.u.arr.size; ++index) {
+        toml_datum_t item = autoload_actor_ids.u.arr.elem[index];
+        if (item.type != TOML_STRING || !item.u.s || item.u.s[0] == '\0') {
+            log_err("Persistence.autoload_actor_ids[%d] must be a non-empty string", index);
+            return Err;
+        }
+
+        if (runtime_state.autoload_actor_count >= RuntimeMaxAutoloadActors) {
+            log_warn("Persistence.autoload_actor_ids exceeded max %d entries; extras ignored", RuntimeMaxAutoloadActors);
+            break;
+        }
+
+        if (snprintf(runtime_state.autoload_actor_ids[runtime_state.autoload_actor_count], RuntimeMaxAutoloadActorIdLength, "%s", item.u.s) >= RuntimeMaxAutoloadActorIdLength) {
+            log_err("Autoload actor id is too long: '%s'", item.u.s);
+            return Err;
+        }
+
+        runtime_state.autoload_actor_count++;
+    }
+
+    return Ok;
 }
 
 static boolean has_conf_extension(const char *file_name) {
@@ -565,6 +610,8 @@ static result validate_conf_files(const char *directory_path, usize *out_conf_co
 static void frame_update(void) {
     if (!runtime_state.active)
         return;
+
+    process_pending_scene_load();
 
     if (runtime_state.dj_enabled)
         update_dj(&runtime_state.dj);
@@ -985,18 +1032,9 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
     return Ok;
 }
 
-static result load_autoload_actors(toml_datum_t project_toptab, toml_datum_t autoload_toptab) {
-    toml_datum_t persistence = toml_get(project_toptab, "Persistence");
-    if (persistence.type != TOML_TABLE) {
-        log_warn("Config is missing [Persistence] table; skipping autoload actors");
+static result load_autoload_actors(toml_datum_t autoload_toptab) {
+    if (runtime_state.autoload_actor_count == 0)
         return Ok;
-    }
-
-    toml_datum_t autoload_actor_ids = toml_get(persistence, "autoload_actor_ids");
-    if (autoload_actor_ids.type != TOML_ARRAY) {
-        log_warn("Config is missing Persistence.autoload_actor_ids array; skipping autoload actors");
-        return Ok;
-    }
 
     toml_datum_t data_actors = toml_get(autoload_toptab, "Actors");
     if (data_actors.type != TOML_ARRAY) {
@@ -1004,24 +1042,132 @@ static result load_autoload_actors(toml_datum_t project_toptab, toml_datum_t aut
         return Err;
     }
 
-    for (int index = 0; index < autoload_actor_ids.u.arr.size; ++index) {
-        toml_datum_t actor_id = autoload_actor_ids.u.arr.elem[index];
-        if (actor_id.type != TOML_STRING || !actor_id.u.s || actor_id.u.s[0] == '\0') {
-            log_err("Persistence.autoload_actor_ids[%d] must be a non-empty string", index);
-            return Err;
-        }
+    for (usize index = 0; index < runtime_state.autoload_actor_count; ++index) {
+        const char *actor_id = runtime_state.autoload_actor_ids[index];
 
         toml_datum_t actor_table = {0};
-        if (find_actor_table_by_id(data_actors, actor_id.u.s, &actor_table) != Ok) {
-            log_err("Autoload actor '%s' listed in Persistence.autoload_actor_ids was not found in autoload data", actor_id.u.s);
+        if (find_actor_table_by_id(data_actors, actor_id, &actor_table) != Ok) {
+            log_err("Autoload actor '%s' listed in Persistence.autoload_actor_ids was not found in autoload data", actor_id);
             return Err;
         }
 
-        if (instantiate_actor_from_table(actor_id.u.s, actor_table, (toml_datum_t){0}, Null, "Instantiated autoload actor") != Ok)
+        if (instantiate_actor_from_table(actor_id, actor_table, (toml_datum_t){0}, Null, "Instantiated autoload actor") != Ok)
             return Err;
     }
 
     return Ok;
+}
+
+static result load_scene_runtime(const char *scene_path) {
+    if (!scene_path || scene_path[0] == '\0')
+        return Err;
+
+    toml_result_t scene_toml = {0};
+    toml_result_t scene_data_toml = {0};
+    toml_result_t autoload_toml = {0};
+    boolean scene_ok = False;
+    boolean scene_data_ok = False;
+    boolean autoload_ok = False;
+
+    char resolved_scene_path[PATH_MAX] = {0};
+    if (join_path(runtime_state.scenes_root, scene_path, resolved_scene_path, sizeof(resolved_scene_path)) != Ok) {
+        log_err("Failed to resolve scene path '%s'", scene_path);
+        goto fail;
+    }
+
+    if (parse_toml_file(resolved_scene_path, &scene_toml) != Ok)
+        goto fail;
+    scene_ok = True;
+
+    toml_datum_t scene_table = toml_get(scene_toml.toptab, "Scene");
+    if (scene_table.type != TOML_TABLE) {
+        log_err("Scene config '%s' is missing [Scene] table", resolved_scene_path);
+        goto fail;
+    }
+
+    toml_datum_t scene_data_file = toml_get(scene_table, "data_file");
+    if (scene_data_file.type != TOML_STRING || !scene_data_file.u.s || scene_data_file.u.s[0] == '\0') {
+        log_err("Scene config '%s' is missing Scene.data_file", resolved_scene_path);
+        goto fail;
+    }
+
+    char scene_directory[PATH_MAX] = {0};
+    if (parent_directory(resolved_scene_path, scene_directory, sizeof(scene_directory)) != Ok) {
+        log_err("Failed to resolve scene directory for '%s'", resolved_scene_path);
+        goto fail;
+    }
+
+    char scene_data_path[PATH_MAX] = {0};
+    if (join_path(scene_directory, scene_data_file.u.s, scene_data_path, sizeof(scene_data_path)) != Ok) {
+        log_err("Failed to resolve Scene.data_file path for '%s'", resolved_scene_path);
+        goto fail;
+    }
+
+    if (parse_toml_file(scene_data_path, &scene_data_toml) != Ok)
+        goto fail;
+    scene_data_ok = True;
+
+    if (parse_toml_file(runtime_state.autoload_data_path, &autoload_toml) != Ok)
+        goto fail;
+    autoload_ok = True;
+
+    dispose_runtime_components();
+    actor_registry_dispose(&runtime_state.actor_registry);
+    actor_registry_init(&runtime_state.actor_registry);
+    script_runtime_bind_registry(&runtime_state.script_runtime, &runtime_state.actor_registry);
+    runtime_state.active_camera = Null;
+    runtime_state.active_camera_actor = Null;
+
+    if (load_autoload_actors(autoload_toml.toptab) != Ok)
+        goto fail;
+
+    if (load_scene_actors(scene_toml.toptab, scene_data_toml.toptab, runtime_state.prefabs_root) != Ok)
+        goto fail;
+
+    if (snprintf(runtime_state.current_scene_path, sizeof(runtime_state.current_scene_path), "%s", resolved_scene_path) >= (int)sizeof(runtime_state.current_scene_path)) {
+        log_err("Resolved scene path is too long: '%s'", resolved_scene_path);
+        goto fail;
+    }
+
+    log_msg("Loaded scene '%s'", resolved_scene_path);
+
+    if (autoload_ok)
+        toml_free(autoload_toml);
+    if (scene_data_ok)
+        toml_free(scene_data_toml);
+    if (scene_ok)
+        toml_free(scene_toml);
+
+    return Ok;
+
+fail:
+    if (autoload_ok)
+        toml_free(autoload_toml);
+    if (scene_data_ok)
+        toml_free(scene_data_toml);
+    if (scene_ok)
+        toml_free(scene_toml);
+
+    return Err;
+}
+
+static void process_pending_scene_load(void) {
+    if (!runtime_state.has_pending_scene_load)
+        return;
+
+    char scene_path[PATH_MAX] = {0};
+    if (snprintf(scene_path, sizeof(scene_path), "%s", runtime_state.pending_scene_path) >= (int)sizeof(scene_path)) {
+        log_err("Pending scene path too long");
+        runtime_state.has_pending_scene_load = False;
+        runtime_state.pending_scene_path[0] = '\0';
+        return;
+    }
+
+    runtime_state.has_pending_scene_load = False;
+    runtime_state.pending_scene_path[0] = '\0';
+
+    if (load_scene_runtime(scene_path) != Ok)
+        log_err("Failed to switch to scene '%s'", scene_path);
 }
 
 static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab, const char *prefabs_root) {
@@ -1073,13 +1219,7 @@ static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_top
 
 result run_project_runtime(const char *project_path) {
     toml_result_t project_toml = {0};
-    toml_result_t autoload_toml = {0};
-    toml_result_t scene_toml = {0};
-    toml_result_t scene_data_toml = {0};
     boolean project_ok = False;
-    boolean autoload_ok = False;
-    boolean scene_ok = False;
-    boolean scene_data_ok = False;
 
     struct stat project_stat = {0};
     if (!project_path || stat(project_path, &project_stat) != 0 || !S_ISDIR(project_stat.st_mode)) {
@@ -1095,6 +1235,8 @@ result run_project_runtime(const char *project_path) {
         log_err("No .conf files found under '%s'", project_path);
         return Err;
     }
+
+    memset(&runtime_state, 0, sizeof(runtime_state));
 
     char springengine_config_path[PATH_MAX] = {0};
     if (join_path(project_path, "springengine.conf", springengine_config_path, sizeof(springengine_config_path)) != Ok) {
@@ -1135,13 +1277,11 @@ result run_project_runtime(const char *project_path) {
         goto fail;
     }
 
-    char scenes_root[PATH_MAX] = {0};
-    char prefabs_root[PATH_MAX] = {0};
-    if (snprintf(scenes_root, sizeof(scenes_root), "%s", project_path) >= (int)sizeof(scenes_root)) {
+    if (snprintf(runtime_state.scenes_root, sizeof(runtime_state.scenes_root), "%s", project_path) >= (int)sizeof(runtime_state.scenes_root)) {
         log_err("Project path is too long: '%s'", project_path);
         goto fail;
     }
-    if (snprintf(prefabs_root, sizeof(prefabs_root), "%s", project_path) >= (int)sizeof(prefabs_root)) {
+    if (snprintf(runtime_state.prefabs_root, sizeof(runtime_state.prefabs_root), "%s", project_path) >= (int)sizeof(runtime_state.prefabs_root)) {
         log_err("Project path is too long: '%s'", project_path);
         goto fail;
     }
@@ -1150,7 +1290,7 @@ result run_project_runtime(const char *project_path) {
     if (paths_table.type == TOML_TABLE) {
         toml_datum_t scenes_dir = toml_get(paths_table, "scenes_dir");
         if (scenes_dir.type == TOML_STRING && scenes_dir.u.s && scenes_dir.u.s[0] != '\0') {
-            if (join_path(project_path, scenes_dir.u.s, scenes_root, sizeof(scenes_root)) != Ok) {
+            if (join_path(project_path, scenes_dir.u.s, runtime_state.scenes_root, sizeof(runtime_state.scenes_root)) != Ok) {
                 log_err("Failed to resolve Paths.scenes_dir from '%s'", springengine_config_path);
                 goto fail;
             }
@@ -1158,67 +1298,31 @@ result run_project_runtime(const char *project_path) {
 
         toml_datum_t prefabs_dir = toml_get(paths_table, "prefabs_dir");
         if (prefabs_dir.type == TOML_STRING && prefabs_dir.u.s && prefabs_dir.u.s[0] != '\0') {
-            if (join_path(project_path, prefabs_dir.u.s, prefabs_root, sizeof(prefabs_root)) != Ok) {
+            if (join_path(project_path, prefabs_dir.u.s, runtime_state.prefabs_root, sizeof(runtime_state.prefabs_root)) != Ok) {
                 log_err("Failed to resolve Paths.prefabs_dir from '%s'", springengine_config_path);
                 goto fail;
             }
         }
     }
 
-    char autoload_path[PATH_MAX] = {0};
-    if (join_path(project_path, autoload_data.u.s, autoload_path, sizeof(autoload_path)) != Ok) {
+    if (join_path(project_path, autoload_data.u.s, runtime_state.autoload_data_path, sizeof(runtime_state.autoload_data_path)) != Ok) {
         log_err("Failed to resolve Boot.autoload_data path");
         goto fail;
     }
-
-    if (parse_toml_file(autoload_path, &autoload_toml) != Ok)
-        goto fail;
-    autoload_ok = True;
-
-    char first_scene_path[PATH_MAX] = {0};
-    if (join_path(scenes_root, first_scene.u.s, first_scene_path, sizeof(first_scene_path)) != Ok) {
-        log_err("Failed to resolve Boot.first_scene path");
-        goto fail;
-    }
-
-    if (parse_toml_file(first_scene_path, &scene_toml) != Ok)
-        goto fail;
-    scene_ok = True;
-
-    toml_datum_t scene_table = toml_get(scene_toml.toptab, "Scene");
-    if (scene_table.type != TOML_TABLE) {
-        log_err("Scene config '%s' is missing [Scene] table", first_scene_path);
-        goto fail;
-    }
-
-    toml_datum_t scene_data_file = toml_get(scene_table, "data_file");
-    if (scene_data_file.type != TOML_STRING || !scene_data_file.u.s || scene_data_file.u.s[0] == '\0') {
-        log_err("Scene config '%s' is missing Scene.data_file", first_scene_path);
-        goto fail;
-    }
-
-    char first_scene_directory[PATH_MAX] = {0};
-    if (parent_directory(first_scene_path, first_scene_directory, sizeof(first_scene_directory)) != Ok) {
-        log_err("Failed to resolve first scene directory for '%s'", first_scene_path);
-        goto fail;
-    }
-
-    char scene_data_path[PATH_MAX] = {0};
-    if (join_path(first_scene_directory, scene_data_file.u.s, scene_data_path, sizeof(scene_data_path)) != Ok) {
-        log_err("Failed to resolve Scene.data_file path");
-        goto fail;
-    }
-
-    if (parse_toml_file(scene_data_path, &scene_data_toml) != Ok)
-        goto fail;
-    scene_data_ok = True;
 
     if (snprintf(runtime_state.project_root, sizeof(runtime_state.project_root), "%s", project_path) >= (int)sizeof(runtime_state.project_root)) {
         log_err("Project path is too long: '%s'", project_path);
         goto fail;
     }
 
-    runtime_state.dj_enabled = contains_autoload_actor_id(project_toml.toptab, "global_audio");
+    runtime_state.has_pending_scene_load = False;
+    runtime_state.pending_scene_path[0] = '\0';
+    runtime_state.current_scene_path[0] = '\0';
+
+    if (cache_autoload_actor_ids(project_toml.toptab) != Ok)
+        goto fail;
+
+    runtime_state.dj_enabled = contains_autoload_actor_id("global_audio");
     if (runtime_state.dj_enabled) {
         runtime_state.dj = init_dj();
         log_msg("Initialized DJ runtime (Persistence.autoload_actor_ids contains 'global_audio')");
@@ -1230,16 +1334,11 @@ result run_project_runtime(const char *project_path) {
         goto fail;
     script_runtime_bind_registry(&runtime_state.script_runtime, &runtime_state.actor_registry);
 
-    if (load_autoload_actors(project_toml.toptab, autoload_toml.toptab) != Ok)
-        goto fail;
-
-    if (load_scene_actors(scene_toml.toptab, scene_data_toml.toptab, prefabs_root) != Ok)
+    if (load_scene_runtime(first_scene.u.s) != Ok)
         goto fail;
 
     log_msg("Loaded project config '%s'", springengine_config_path);
-    log_msg("Loaded autoload data '%s'", autoload_path);
-    log_msg("Loaded first scene '%s'", first_scene_path);
-    log_msg("Loaded first scene data '%s'", scene_data_path);
+    log_msg("Loaded autoload data '%s'", runtime_state.autoload_data_path);
 
     if (open_window(window_config) != Ok)
         goto fail;
@@ -1257,13 +1356,14 @@ result run_project_runtime(const char *project_path) {
     }
     runtime_state.active = False;
     runtime_state.project_root[0] = '\0';
+    runtime_state.scenes_root[0] = '\0';
+    runtime_state.prefabs_root[0] = '\0';
+    runtime_state.autoload_data_path[0] = '\0';
+    runtime_state.current_scene_path[0] = '\0';
+    runtime_state.pending_scene_path[0] = '\0';
+    runtime_state.has_pending_scene_load = False;
+    runtime_state.autoload_actor_count = 0;
 
-    if (scene_data_ok)
-        toml_free(scene_data_toml);
-    if (scene_ok)
-        toml_free(scene_toml);
-    if (autoload_ok)
-        toml_free(autoload_toml);
     if (project_ok)
         toml_free(project_toml);
 
@@ -1280,16 +1380,37 @@ fail:
         }
         runtime_state.active = False;
         runtime_state.project_root[0] = '\0';
+        runtime_state.scenes_root[0] = '\0';
+        runtime_state.prefabs_root[0] = '\0';
+        runtime_state.autoload_data_path[0] = '\0';
+        runtime_state.current_scene_path[0] = '\0';
+        runtime_state.pending_scene_path[0] = '\0';
+        runtime_state.has_pending_scene_load = False;
+        runtime_state.autoload_actor_count = 0;
     }
 
-    if (scene_data_ok)
-        toml_free(scene_data_toml);
-    if (scene_ok)
-        toml_free(scene_toml);
-    if (autoload_ok)
-        toml_free(autoload_toml);
     if (project_ok)
         toml_free(project_toml);
 
     return Err;
- }
+}
+
+result runtime_request_scene_load(const char *scene_path) {
+    if (!runtime_state.active || !scene_path || scene_path[0] == '\0')
+        return Err;
+
+    if (snprintf(runtime_state.pending_scene_path, sizeof(runtime_state.pending_scene_path), "%s", scene_path) >= (int)sizeof(runtime_state.pending_scene_path)) {
+        log_err("Requested scene path is too long: '%s'", scene_path);
+        return Err;
+    }
+
+    runtime_state.has_pending_scene_load = True;
+    return Ok;
+}
+
+const char *runtime_current_scene_path(void) {
+    if (!runtime_state.current_scene_path[0])
+        return Null;
+
+    return runtime_state.current_scene_path;
+}

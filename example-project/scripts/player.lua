@@ -1,3 +1,8 @@
+local Engine = require("Engine")
+local Input = require("Engine.Input")
+local Transform = require("Engine.Transform")
+local DJ = require("Engine.DJ")
+
 local player = {
 	move_speed = 6.0,
 	jump_speed = 8.0,
@@ -11,7 +16,7 @@ local player = {
 }
 
 local function log_message(message)
-	if Engine and Engine.log then
+	if Engine.log then
 		Engine.log(message)
 	elseif print then
 		print(message)
@@ -19,7 +24,7 @@ local function log_message(message)
 end
 
 local function play_stomp_sfx()
-	if DJ and DJ.play_sound then
+	if DJ.play_sound then
 		DJ.play_sound("stomp-sfx")
 	end
 end
@@ -28,12 +33,12 @@ local function read_move_input()
 	local move_horizontal = 0.0
 	local move_forward = 0.0
 
-	if Input and Input.accepted then
+	if Input.accepted then
 		if Input.accepted("MoveLeft") then move_horizontal = move_horizontal - 1.0 end
 		if Input.accepted("MoveRight") then move_horizontal = move_horizontal + 1.0 end
 		if Input.accepted("MoveUp") then move_forward = move_forward + 1.0 end
 		if Input.accepted("MoveDown") then move_forward = move_forward - 1.0 end
-	elseif Input and Input.is_key_down then
+	elseif Input.is_key_down then
 		if Input.is_key_down("A") then move_horizontal = move_horizontal - 1.0 end
 		if Input.is_key_down("D") then move_horizontal = move_horizontal + 1.0 end
 		if Input.is_key_down("W") then move_forward = move_forward + 1.0 end
@@ -52,7 +57,7 @@ local function get_delta_time()
 end
 
 local function current_schema_name()
-	if Input and Input.current_schema then
+	if Input.current_schema then
 		local name = Input.current_schema()
 		if name then
 			return name
@@ -63,7 +68,7 @@ local function current_schema_name()
 end
 
 local function toggle_input_schema()
-	if not (Input and Input.was_key_pressed and Input.set_schema and Input.current_schema) then
+	if not (Input.was_key_pressed and Input.set_schema and Input.current_schema) then
 		return
 	end
 
@@ -84,7 +89,7 @@ local function toggle_input_schema()
 end
 
 local function log_schema_inputs()
-	if not (Input and Input.accepted and Input.current_schema) then
+	if not (Input.accepted and Input.current_schema) then
 		return
 	end
 
@@ -133,7 +138,7 @@ function player:start()
 	self.is_grounded = true
 	self.air_time = 0.0
 	self.last_schema = current_schema_name()
-	if DJ and DJ.load_sound then
+	if DJ.load_sound then
 		DJ.load_sound("assets/Sounds/stomp-sfx.wav", "stomp-sfx")
 	end
 	log_message("player.lua start")
@@ -148,7 +153,7 @@ function player:update()
 	local delta_time = get_delta_time()
 	local move_horizontal, move_forward = read_move_input()
 
-	if Transform and Transform.translate then
+	if Transform.translate then
 		Transform.translate(
 			move_horizontal * self.move_speed * delta_time,
 			0.0,
@@ -157,9 +162,9 @@ function player:update()
 	end
 
 	local jump_pressed = false
-	if Input and Input.accepted and Input.accepted("Jump") then
+	if Input.accepted and Input.accepted("Jump") then
 		jump_pressed = true
-	elseif Input and Input.was_key_pressed and Input.was_key_pressed("SPACE") then
+	elseif Input.was_key_pressed and Input.was_key_pressed("SPACE") then
 		jump_pressed = true
 	end
 
@@ -183,11 +188,11 @@ function player:update()
 
 	self.vertical_velocity = self.vertical_velocity + self.gravity * delta_time
 
-	if Transform and Transform.translate then
+	if Transform.translate then
 		Transform.translate(0.0, self.vertical_velocity * delta_time, 0.0)
 	end
 
-	if Transform and Transform.get_position and Transform.set_position then
+	if Transform.get_position and Transform.set_position then
 		local position_x, position_y, position_z = Transform.get_position()
 		if position_y <= 0.0 then
 			Transform.set_position(position_x, 0.0, position_z)

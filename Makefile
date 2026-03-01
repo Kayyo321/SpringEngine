@@ -79,9 +79,9 @@ LDFLAGS += -framework Cocoa -framework IOKit -framework CoreVideo -framework Cor
 LDLIBS += -lm
 endif
 
-.PHONY: all clean fclean re test
+.PHONY: all clean fclean re test check-allocators
 
-all: $(TARGET)
+all: check-allocators $(TARGET)
 
 $(TARGET): $(OBJ) $(TOMLC17_STATIC_LIB) | $(BINDIR)
 	$(CC) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@
@@ -109,3 +109,11 @@ re: fclean all
 test: CPPFLAGS += -DTESTING
 test: re
 	./$(TARGET)
+
+check-allocators:
+	@matches=$$(find $(SRCDIR) -type f -name '*.c' ! -path '$(SRCDIR)/common.c' -exec grep -nEw '(malloc|realloc|free)[[:space:]]*[(]' {} + || true); \
+	if [ -n "$$matches" ]; then \
+		echo "Error: direct malloc/realloc/free usage is forbidden outside src/common.c"; \
+		echo "$$matches"; \
+		exit 1; \
+	fi

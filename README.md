@@ -41,6 +41,52 @@ SpringEngine aims for a Unity-style authoring model, with Lua as the primary scr
 - Game packages primarily ship Lua scripts and content files.
 - Native modules are optional for performance-critical or platform-specific features.
 
+### Lua Engine Imports
+
+SpringEngine runtime modules are imported explicitly from Lua (not injected as globals).
+
+Example:
+
+```lua
+local Engine = require("Engine")
+local Input = require("Engine.Input")
+local Transform = require("Engine.Transform")
+local Scene = require("Engine.Scene")
+```
+
+Available modules:
+
+- `Engine` (root utilities: logging, version, module access)
+- `Engine.Input`
+- `Engine.Transform`
+- `Engine.Actor`
+- `Engine.Camera`
+- `Engine.Scene`
+- `Engine.DJ`
+
+### Scene API (Lua)
+
+`Engine.Scene` currently supports:
+
+- `find_by_id(actor_id)`
+- `find_first_by_layer(layer, include_disabled?)`
+- `find_all_by_layer(layer, include_disabled?)`
+- `actor_count(include_disabled?)`
+- `load(scene_path)` (deferred to next frame boundary)
+- `current()`
+
+`Scene.load(...)` expects a path relative to `Paths.scenes_dir` (or absolute path).
+
+### Cleanup Verification
+
+SpringEngine already performs global heap cleanup verification on exit through `scan_and_deallocate()` in `src/common.c`.
+
+- If leaked allocations exist, each leaked block is logged (`Memory leak detected: ...`).
+- Any recovered leak forces a non-zero exit code.
+- `make test` includes allocator coverage and exercises this path.
+
+For practical verification, run `make test` and inspect `logs/log0-last.log` for leak lines.
+
 ### API Stability Strategy
 
 - Version the runtime API exposed to Lua.

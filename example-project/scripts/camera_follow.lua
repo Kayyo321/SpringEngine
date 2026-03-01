@@ -1,3 +1,7 @@
+local Engine = require("Engine")
+local Actor = require("Engine.Actor")
+local Camera = require("Engine.Camera")
+
 local camera_follow = {
     target_actor_id = "crate_001",
     follow_lerp = 0.013,
@@ -5,7 +9,7 @@ local camera_follow = {
 }
 
 local function log_message(message)
-    if Engine and Engine.log then
+    if Engine.log then
         Engine.log(message)
     elseif print then
         print(message)
