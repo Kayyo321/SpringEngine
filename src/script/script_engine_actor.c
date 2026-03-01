@@ -1,11 +1,16 @@
 #include "script_runtime_internal.h"
 
+#include <math.h>
+
 static const char *resolve_component_name_alias(const char *component_name) {
     if (!component_name || component_name[0] == '\0')
         return Null;
 
     if (strcmp(component_name, "AnimConf") == 0)
         return "AnimatedSprite";
+
+    if (strcmp(component_name, "Rigidbody2D") == 0)
+        return "Rigidbody";
 
     return component_name;
 }
@@ -128,6 +133,14 @@ static ColliderComponentData *find_actor_collider(Actor *actor) {
         return Null;
 
     return (ColliderComponentData *)component->data;
+}
+
+static RigidbodyComponentData *find_actor_rigidbody(Actor *actor) {
+    ActorComponent *component = find_builtin_component(actor, "Rigidbody");
+    if (!component)
+        return Null;
+
+    return (RigidbodyComponentData *)component->data;
 }
 
 static int lua_actor_component_collider_set_offset(lua_State *lua_state) {
@@ -334,6 +347,544 @@ static int lua_actor_component_collider_overlaps_point(lua_State *lua_state) {
     };
 
     lua_pushboolean(lua_state, CheckCollisionPointRec(point, bounds) ? 1 : 0);
+    return 1;
+}
+
+static result lua_actor_component_rigidbody_get(lua_State *lua_state, const char *actor_id, RigidbodyComponentData **out_rigidbody) {
+    if (!out_rigidbody)
+        return Err;
+
+    *out_rigidbody = Null;
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    if (!actor)
+        return Err;
+
+    RigidbodyComponentData *rigidbody = find_actor_rigidbody(actor);
+    if (!rigidbody)
+        return Err;
+
+    *out_rigidbody = rigidbody;
+    return Ok;
+}
+
+static int lua_actor_rigidbody_force_mode(lua_State *lua_state, int index) {
+    if (lua_gettop(lua_state) < index || !lua_isstring(lua_state, index))
+        return 0;
+
+    const char *mode = lua_tostring(lua_state, index);
+    if (!mode)
+        return 0;
+
+    return (strcmp(mode, "impulse") == 0 || strcmp(mode, "Impulse") == 0) ? 1 : 0;
+}
+
+static int lua_actor_component_rigidbody_set_body_type(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+    const char *value = luaL_checkstring(lua_state, value_index);
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    RigidbodyBodyType body_type = RigidbodyBodyTypeDynamic;
+    if (rigidbody_body_type_from_string(value, &body_type) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->body_type = body_type;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_body_type(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushstring(lua_state, rigidbody_body_type_to_string(state->body_type));
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_set_simulated(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->simulated = lua_toboolean(lua_state, value_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_simulated(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->simulated ? 1 : 0);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_set_use_gravity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->use_gravity = lua_toboolean(lua_state, value_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_use_gravity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->use_gravity ? 1 : 0);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_set_mass(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float mass = (float)luaL_checknumber(lua_state, value_index);
+    if (mass <= 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->mass = mass;
+    state->inverse_mass = 1.0f / mass;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_mass(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->mass);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_set_gravity_scale(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->gravity_scale = (float)luaL_checknumber(lua_state, value_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_gravity_scale(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->gravity_scale);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_set_linear_drag(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    float value = (float)luaL_checknumber(lua_state, value_index);
+    if (value < 0.0f)
+        value = 0.0f;
+
+    state->linear_drag = value;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_linear_drag(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->linear_drag);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_set_angular_drag(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    float value = (float)luaL_checknumber(lua_state, value_index);
+    if (value < 0.0f)
+        value = 0.0f;
+
+    state->angular_drag = value;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_angular_drag(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->angular_drag);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_set_velocity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->velocity_x = (float)luaL_checknumber(lua_state, x_index);
+    state->velocity_y = (float)luaL_checknumber(lua_state, y_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_velocity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 2;
+    }
+
+    lua_pushnumber(lua_state, state->velocity_x);
+    lua_pushnumber(lua_state, state->velocity_y);
+    return 2;
+}
+
+static int lua_actor_component_rigidbody_set_angular_velocity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->angular_velocity = (float)luaL_checknumber(lua_state, value_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_angular_velocity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->angular_velocity);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_set_freeze_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->freeze_position_x = lua_toboolean(lua_state, x_index) ? True : False;
+    state->freeze_position_y = lua_toboolean(lua_state, y_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_freeze_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 2;
+    }
+
+    lua_pushboolean(lua_state, state->freeze_position_x ? 1 : 0);
+    lua_pushboolean(lua_state, state->freeze_position_y ? 1 : 0);
+    return 2;
+}
+
+static int lua_actor_component_rigidbody_set_freeze_rotation(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->freeze_rotation = lua_toboolean(lua_state, value_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_get_freeze_rotation(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->freeze_rotation ? 1 : 0);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_add_force(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+    const int mode_index = using_colon_call ? 4 : 3;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float force_x = (float)luaL_checknumber(lua_state, x_index);
+    const float force_y = (float)luaL_checknumber(lua_state, y_index);
+    const int impulse_mode = lua_actor_rigidbody_force_mode(lua_state, mode_index);
+
+    if (impulse_mode) {
+        if (state->mass <= 0.0f)
+            state->mass = 1.0f;
+        state->inverse_mass = 1.0f / state->mass;
+
+        state->velocity_x += force_x * state->inverse_mass;
+        state->velocity_y += force_y * state->inverse_mass;
+    } else {
+        state->force_x += force_x;
+        state->force_y += force_y;
+    }
+
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_apply_force(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int dir_x_index = using_colon_call ? 2 : 1;
+    const int dir_y_index = using_colon_call ? 3 : 2;
+    const int magnitude_index = using_colon_call ? 4 : 3;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    float dir_x = (float)luaL_checknumber(lua_state, dir_x_index);
+    float dir_y = (float)luaL_checknumber(lua_state, dir_y_index);
+    const float magnitude = (float)luaL_checknumber(lua_state, magnitude_index);
+
+    const float length = sqrtf((dir_x * dir_x) + (dir_y * dir_y));
+    if (length <= 0.0001f || magnitude == 0.0f) {
+        lua_pushboolean(lua_state, 1);
+        return 1;
+    }
+
+    dir_x /= length;
+    dir_y /= length;
+
+    if (state->mass <= 0.0f)
+        state->mass = 1.0f;
+    state->inverse_mass = 1.0f / state->mass;
+
+    state->velocity_x += (dir_x * magnitude) * state->inverse_mass;
+    state->velocity_y += (dir_y * magnitude) * state->inverse_mass;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_add_torque(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+    const int mode_index = using_colon_call ? 3 : 2;
+
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float torque = (float)luaL_checknumber(lua_state, value_index);
+    const int impulse_mode = lua_actor_rigidbody_force_mode(lua_state, mode_index);
+
+    if (impulse_mode) {
+        if (state->mass <= 0.0f)
+            state->mass = 1.0f;
+        state->inverse_mass = 1.0f / state->mass;
+        state->angular_velocity += torque * state->inverse_mass;
+    } else {
+        state->torque += torque;
+    }
+
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_clear_forces(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->force_x = 0.0f;
+    state->force_y = 0.0f;
+    state->torque = 0.0f;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_move_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+    const int z_index = using_colon_call ? 4 : 3;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    RigidbodyComponentData *state = find_actor_rigidbody(actor);
+    if (!actor || !state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    actor->transform.position.x = (float)luaL_checknumber(lua_state, x_index);
+    actor->transform.position.y = (float)luaL_checknumber(lua_state, y_index);
+    if (lua_gettop(lua_state) >= z_index)
+        actor->transform.position.z = (float)luaL_checknumber(lua_state, z_index);
+
+    state->velocity_x = 0.0f;
+    state->velocity_y = 0.0f;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_move_rotation(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    RigidbodyComponentData *state = find_actor_rigidbody(actor);
+    if (!actor || !state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    actor->transform.rotation_euler.z = (float)luaL_checknumber(lua_state, value_index);
+    state->angular_velocity = 0.0f;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_rigidbody_is_grounded(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    RigidbodyComponentData *state = Null;
+    if (lua_actor_component_rigidbody_get(lua_state, actor_id, &state) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->is_grounded ? 1 : 0);
     return 1;
 }
 
@@ -560,6 +1111,133 @@ static int lua_actor_get_component(lua_State *lua_state) {
         lua_pushstring(lua_state, actor_id);
         lua_pushcclosure(lua_state, lua_actor_component_collider_overlaps_point, 1);
         lua_setfield(lua_state, -2, "overlaps_point");
+
+        return 1;
+    }
+
+    if (strcmp(resolved_component, "Rigidbody") == 0) {
+        if (!find_actor_rigidbody(actor)) {
+            lua_pushnil(lua_state);
+            return 1;
+        }
+
+        lua_newtable(lua_state);
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_body_type, 1);
+        lua_setfield(lua_state, -2, "set_body_type");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_body_type, 1);
+        lua_setfield(lua_state, -2, "get_body_type");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_simulated, 1);
+        lua_setfield(lua_state, -2, "set_simulated");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_simulated, 1);
+        lua_setfield(lua_state, -2, "get_simulated");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_use_gravity, 1);
+        lua_setfield(lua_state, -2, "set_use_gravity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_use_gravity, 1);
+        lua_setfield(lua_state, -2, "get_use_gravity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_mass, 1);
+        lua_setfield(lua_state, -2, "set_mass");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_mass, 1);
+        lua_setfield(lua_state, -2, "get_mass");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_gravity_scale, 1);
+        lua_setfield(lua_state, -2, "set_gravity_scale");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_gravity_scale, 1);
+        lua_setfield(lua_state, -2, "get_gravity_scale");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_linear_drag, 1);
+        lua_setfield(lua_state, -2, "set_linear_drag");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_linear_drag, 1);
+        lua_setfield(lua_state, -2, "get_linear_drag");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_angular_drag, 1);
+        lua_setfield(lua_state, -2, "set_angular_drag");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_angular_drag, 1);
+        lua_setfield(lua_state, -2, "get_angular_drag");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_velocity, 1);
+        lua_setfield(lua_state, -2, "set_velocity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_velocity, 1);
+        lua_setfield(lua_state, -2, "get_velocity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_angular_velocity, 1);
+        lua_setfield(lua_state, -2, "set_angular_velocity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_angular_velocity, 1);
+        lua_setfield(lua_state, -2, "get_angular_velocity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_freeze_position, 1);
+        lua_setfield(lua_state, -2, "set_freeze_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_freeze_position, 1);
+        lua_setfield(lua_state, -2, "get_freeze_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_set_freeze_rotation, 1);
+        lua_setfield(lua_state, -2, "set_freeze_rotation");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_get_freeze_rotation, 1);
+        lua_setfield(lua_state, -2, "get_freeze_rotation");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_add_force, 1);
+        lua_setfield(lua_state, -2, "add_force");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_apply_force, 1);
+        lua_setfield(lua_state, -2, "apply_force");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_add_torque, 1);
+        lua_setfield(lua_state, -2, "add_torque");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_clear_forces, 1);
+        lua_setfield(lua_state, -2, "clear_forces");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_move_position, 1);
+        lua_setfield(lua_state, -2, "move_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_move_rotation, 1);
+        lua_setfield(lua_state, -2, "move_rotation");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_rigidbody_is_grounded, 1);
+        lua_setfield(lua_state, -2, "is_grounded");
 
         return 1;
     }

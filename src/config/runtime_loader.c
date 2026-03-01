@@ -4,6 +4,7 @@
 #include "actor/actor.h"
 #include "actor/camera_component.h"
 #include "actor/collider_component.h"
+#include "actor/rigidbody_component.h"
 #include "config/static_sprite_component.h"
 #include "dj/dj.h"
 #include "project_config.h"
@@ -40,12 +41,19 @@ static void process_pending_scene_load(void);
 static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t actor_table, toml_datum_t *out_animated_sprite_table);
 static result animated_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static result collider_component_initialize(Actor *actor, ActorComponent *component, void *context);
+static result rigidbody_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
 static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor);
 static void animated_sprite_component_dispose(AnimatedSpriteState *state);
 static void static_sprite_component_dispose(StaticSpriteState *state);
 static void camera_component_dispose(CameraComponentData *state);
 static void collider_component_dispose(ColliderComponentData *state);
+static void rigidbody_component_dispose(RigidbodyComponentData *state);
+static void rigidbody_component_integrate(Actor *actor, RigidbodyComponentData *state, float delta_time);
+static void rigidbody_component_resolve_collisions(void);
+
+static const float RuntimePhysicsGravityX = 0.0f;
+static const float RuntimePhysicsGravityY = 240.0f;
 
 static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     if (!out_number)
@@ -122,6 +130,9 @@ static void dispose_actor_components(Actor *actor) {
 
         if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Collider") == 0)
             collider_component_dispose((ColliderComponentData *)component->data);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Rigidbody") == 0)
+            rigidbody_component_dispose((RigidbodyComponentData *)component->data);
     }
 }
 
@@ -553,6 +564,22 @@ static result collider_component_initialize(Actor *actor, ActorComponent *compon
     return Ok;
 }
 
+static result rigidbody_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)actor;
+    (void)context;
+
+    if (!component || !component->data)
+        return Err;
+
+    RigidbodyComponentData *state = (RigidbodyComponentData *)component->data;
+    if (state->mass <= 0.0f)
+        state->mass = 1.0f;
+
+    state->inverse_mass = state->mass > 0.0f ? (1.0f / state->mass) : 0.0f;
+    state->is_grounded = False;
+    return Ok;
+}
+
 static void camera_component_dispose(CameraComponentData *state) {
     if (!state)
         return;
@@ -567,6 +594,146 @@ static void collider_component_dispose(ColliderComponentData *state) {
 
     if (state->heap.pointer)
         deallocate(state->heap);
+}
+
+static void rigidbody_component_dispose(RigidbodyComponentData *state) {
+    if (!state)
+        return;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
+
+static float clamp_non_negative(float value) {
+    return value < 0.0f ? 0.0f : value;
+}
+
+static void rigidbody_component_integrate(Actor *actor, RigidbodyComponentData *state, float delta_time) {
+    if (!actor || !state || delta_time <= 0.0f)
+        return;
+
+    state->is_grounded = False;
+
+    if (!state->simulated)
+        return;
+
+    if (state->body_type == RigidbodyBodyTypeStatic) {
+        state->velocity_x = 0.0f;
+        state->velocity_y = 0.0f;
+        state->angular_velocity = 0.0f;
+        state->force_x = 0.0f;
+        state->force_y = 0.0f;
+        state->torque = 0.0f;
+        return;
+    }
+
+    if (state->body_type == RigidbodyBodyTypeDynamic) {
+        float acceleration_x = state->force_x * state->inverse_mass;
+        float acceleration_y = state->force_y * state->inverse_mass;
+
+        if (state->use_gravity) {
+            acceleration_x += RuntimePhysicsGravityX * state->gravity_scale;
+            acceleration_y += RuntimePhysicsGravityY * state->gravity_scale;
+        }
+
+        state->velocity_x += acceleration_x * delta_time;
+        state->velocity_y += acceleration_y * delta_time;
+
+        const float linear_drag = clamp_non_negative(state->linear_drag);
+        if (linear_drag > 0.0f) {
+            const float drag_multiplier = 1.0f / (1.0f + (linear_drag * delta_time));
+            state->velocity_x *= drag_multiplier;
+            state->velocity_y *= drag_multiplier;
+        }
+
+        state->angular_velocity += state->torque * state->inverse_mass * delta_time;
+        const float angular_drag = clamp_non_negative(state->angular_drag);
+        if (angular_drag > 0.0f) {
+            const float drag_multiplier = 1.0f / (1.0f + (angular_drag * delta_time));
+            state->angular_velocity *= drag_multiplier;
+        }
+    }
+
+    if (!state->freeze_position_x)
+        actor->transform.position.x += state->velocity_x * delta_time;
+    else
+        state->velocity_x = 0.0f;
+
+    if (!state->freeze_position_y)
+        actor->transform.position.y += state->velocity_y * delta_time;
+    else
+        state->velocity_y = 0.0f;
+
+    if (!state->freeze_rotation)
+        actor->transform.rotation_euler.z += state->angular_velocity * delta_time;
+    else
+        state->angular_velocity = 0.0f;
+
+    state->force_x = 0.0f;
+    state->force_y = 0.0f;
+    state->torque = 0.0f;
+}
+
+static void rigidbody_component_resolve_collisions(void) {
+    for (usize left_index = 0; left_index < runtime_state.actor_registry.actor_count; ++left_index) {
+        Actor *left_actor = &runtime_state.actor_registry.actors[left_index];
+        if (!left_actor->enabled)
+            continue;
+
+        ColliderComponentData *left_collider = actor_find_collider_component(left_actor);
+        RigidbodyComponentData *left_rigidbody = actor_find_rigidbody_component(left_actor);
+        if (!left_collider || !left_rigidbody || !left_collider->enabled || left_collider->is_trigger)
+            continue;
+
+        if (!left_rigidbody->simulated || left_rigidbody->body_type != RigidbodyBodyTypeDynamic)
+            continue;
+
+        for (usize right_index = 0; right_index < runtime_state.actor_registry.actor_count; ++right_index) {
+            if (right_index == left_index)
+                continue;
+
+            Actor *right_actor = &runtime_state.actor_registry.actors[right_index];
+            if (!right_actor->enabled)
+                continue;
+
+            ColliderComponentData *right_collider = actor_find_collider_component(right_actor);
+            if (!right_collider || !right_collider->enabled || right_collider->is_trigger)
+                continue;
+
+            if (!collider_components_overlap(left_actor, left_collider, right_actor, right_collider))
+                continue;
+
+            const Rectangle left_bounds = collider_world_bounds(left_actor, left_collider);
+            const Rectangle right_bounds = collider_world_bounds(right_actor, right_collider);
+            const float overlap_x = fminf(left_bounds.x + left_bounds.width, right_bounds.x + right_bounds.width) - fmaxf(left_bounds.x, right_bounds.x);
+            const float overlap_y = fminf(left_bounds.y + left_bounds.height, right_bounds.y + right_bounds.height) - fmaxf(left_bounds.y, right_bounds.y);
+
+            if (overlap_x <= 0.0f || overlap_y <= 0.0f)
+                continue;
+
+            if (overlap_x < overlap_y && !left_rigidbody->freeze_position_x) {
+                if (left_bounds.x < right_bounds.x)
+                    left_actor->transform.position.x -= overlap_x;
+                else
+                    left_actor->transform.position.x += overlap_x;
+
+                left_rigidbody->velocity_x = 0.0f;
+                continue;
+            }
+
+            if (left_rigidbody->freeze_position_y)
+                continue;
+
+            if (left_bounds.y < right_bounds.y) {
+                left_actor->transform.position.y -= overlap_y;
+                left_rigidbody->is_grounded = True;
+            } else {
+                left_actor->transform.position.y += overlap_y;
+            }
+
+            left_rigidbody->velocity_y = 0.0f;
+        }
+    }
 }
 
 static void static_sprite_component_draw(StaticSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor) {
@@ -1781,7 +1948,7 @@ static void frame_update(void) {
     process_pending_actor_destroys();
 
     script_runtime_begin_frame(&runtime_state.script_runtime);
-    const float delta_time = GetFrameTime();
+    const float delta_time = runtime_state.script_runtime.time_delta_time;
 
     if (runtime_state.dj_enabled)
         update_dj(&runtime_state.dj);
@@ -1796,6 +1963,9 @@ static void frame_update(void) {
             if (component->descriptor.kind == ComponentScript)
                 script_component_update(actor, component, &runtime_state.script_runtime);
 
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Rigidbody") == 0)
+                rigidbody_component_integrate(actor, (RigidbodyComponentData *)component->data, delta_time);
+
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
                 animated_sprite_component_update((AnimatedSpriteState *)component->data, delta_time);
 
@@ -1803,6 +1973,8 @@ static void frame_update(void) {
                 break;
         }
     }
+
+    rigidbody_component_resolve_collisions();
 
     process_pending_actor_destroys();
 
@@ -1901,6 +2073,9 @@ static void dispose_runtime_components(void) {
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Collider") == 0)
                 collider_component_dispose((ColliderComponentData *)component->data);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Rigidbody") == 0)
+                rigidbody_component_dispose((RigidbodyComponentData *)component->data);
         }
     }
 }
@@ -1978,6 +2153,37 @@ static const toml_datum_t *find_collider_component_table(toml_datum_t actor_tabl
         if (collider.type == TOML_TABLE) {
             *out_collider_table = collider;
             return out_collider_table;
+        }
+    }
+
+    return Null;
+}
+
+static const toml_datum_t *find_rigidbody_component_table(toml_datum_t actor_table, toml_datum_t *out_rigidbody_table) {
+    if (out_rigidbody_table)
+        *out_rigidbody_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE || !out_rigidbody_table)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t rigidbody = toml_get(components, "Rigidbody");
+            if (rigidbody.type == TOML_TABLE) {
+                *out_rigidbody_table = rigidbody;
+                return out_rigidbody_table;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t rigidbody = toml_get(components, "Rigidbody");
+        if (rigidbody.type == TOML_TABLE) {
+            *out_rigidbody_table = rigidbody;
+            return out_rigidbody_table;
         }
     }
 
@@ -2245,6 +2451,118 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         if (actor_add_component(actor, descriptor, collider_state) != Ok) {
             collider_component_dispose(collider_state);
             log_err("Failed to add collider component to actor '%s'", actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t rigidbody_component_table = {0};
+    if (find_rigidbody_component_table(actor_table, &rigidbody_component_table)) {
+        Heap rigidbody_heap = allocate(1, sizeof(RigidbodyComponentData));
+        RigidbodyComponentData *rigidbody_state = (RigidbodyComponentData *)rigidbody_heap.pointer;
+        if (!rigidbody_state) {
+            log_err("Failed to allocate rigidbody state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(rigidbody_state, 0, sizeof(*rigidbody_state));
+        rigidbody_state->heap = rigidbody_heap;
+        rigidbody_state->body_type = RigidbodyBodyTypeDynamic;
+        rigidbody_state->simulated = True;
+        rigidbody_state->use_gravity = True;
+        rigidbody_state->mass = 1.0f;
+        rigidbody_state->inverse_mass = 1.0f;
+        rigidbody_state->gravity_scale = 1.0f;
+        rigidbody_state->linear_drag = 0.0f;
+        rigidbody_state->angular_drag = 0.05f;
+        rigidbody_state->velocity_x = 0.0f;
+        rigidbody_state->velocity_y = 0.0f;
+        rigidbody_state->angular_velocity = 0.0f;
+        rigidbody_state->force_x = 0.0f;
+        rigidbody_state->force_y = 0.0f;
+        rigidbody_state->torque = 0.0f;
+        rigidbody_state->freeze_position_x = False;
+        rigidbody_state->freeze_position_y = False;
+        rigidbody_state->freeze_rotation = True;
+        rigidbody_state->is_grounded = False;
+
+        toml_datum_t body_type = toml_get(rigidbody_component_table, "body_type");
+        if (body_type.type == TOML_STRING && body_type.u.s && body_type.u.s[0] != '\0') {
+            if (rigidbody_body_type_from_string(body_type.u.s, &rigidbody_state->body_type) != Ok) {
+                rigidbody_component_dispose(rigidbody_state);
+                log_err("Actor '%s' has invalid Rigidbody.body_type; expected dynamic|kinematic|static", actor_id);
+                return Err;
+            }
+        }
+
+        toml_datum_t is_kinematic = toml_get(rigidbody_component_table, "is_kinematic");
+        if (is_kinematic.type == TOML_BOOLEAN && is_kinematic.u.boolean)
+            rigidbody_state->body_type = RigidbodyBodyTypeKinematic;
+
+        toml_datum_t simulated = toml_get(rigidbody_component_table, "simulated");
+        if (simulated.type == TOML_BOOLEAN)
+            rigidbody_state->simulated = simulated.u.boolean ? True : False;
+
+        toml_datum_t use_gravity = toml_get(rigidbody_component_table, "use_gravity");
+        if (use_gravity.type == TOML_BOOLEAN)
+            rigidbody_state->use_gravity = use_gravity.u.boolean ? True : False;
+
+        float number_value = 0.0f;
+        toml_datum_t mass = toml_get(rigidbody_component_table, "mass");
+        if (toml_number_to_float(mass, &number_value) && number_value > 0.0f)
+            rigidbody_state->mass = number_value;
+
+        toml_datum_t gravity_scale = toml_get(rigidbody_component_table, "gravity_scale");
+        if (toml_number_to_float(gravity_scale, &number_value))
+            rigidbody_state->gravity_scale = number_value;
+
+        toml_datum_t linear_drag = toml_get(rigidbody_component_table, "linear_drag");
+        if (toml_number_to_float(linear_drag, &number_value) && number_value >= 0.0f)
+            rigidbody_state->linear_drag = number_value;
+
+        toml_datum_t drag = toml_get(rigidbody_component_table, "drag");
+        if (toml_number_to_float(drag, &number_value) && number_value >= 0.0f)
+            rigidbody_state->linear_drag = number_value;
+
+        toml_datum_t angular_drag = toml_get(rigidbody_component_table, "angular_drag");
+        if (toml_number_to_float(angular_drag, &number_value) && number_value >= 0.0f)
+            rigidbody_state->angular_drag = number_value;
+
+        toml_datum_t velocity = toml_get(rigidbody_component_table, "velocity");
+        Vector2 parsed_velocity = {0.0f, 0.0f};
+        if (velocity.type != TOML_UNKNOWN && read_xy_array(rigidbody_component_table, "velocity", &parsed_velocity) != Ok) {
+            rigidbody_component_dispose(rigidbody_state);
+            log_err("Actor '%s' has invalid Rigidbody.velocity; expected [x, y]", actor_id);
+            return Err;
+        }
+        rigidbody_state->velocity_x = parsed_velocity.x;
+        rigidbody_state->velocity_y = parsed_velocity.y;
+
+        toml_datum_t angular_velocity = toml_get(rigidbody_component_table, "angular_velocity");
+        if (toml_number_to_float(angular_velocity, &number_value))
+            rigidbody_state->angular_velocity = number_value;
+
+        toml_datum_t freeze_position = toml_get(rigidbody_component_table, "freeze_position");
+        if (freeze_position.type == TOML_ARRAY && freeze_position.u.arr.size >= 2) {
+            if (freeze_position.u.arr.elem[0].type == TOML_BOOLEAN)
+                rigidbody_state->freeze_position_x = freeze_position.u.arr.elem[0].u.boolean ? True : False;
+            if (freeze_position.u.arr.elem[1].type == TOML_BOOLEAN)
+                rigidbody_state->freeze_position_y = freeze_position.u.arr.elem[1].u.boolean ? True : False;
+        }
+
+        toml_datum_t freeze_rotation = toml_get(rigidbody_component_table, "freeze_rotation");
+        if (freeze_rotation.type == TOML_BOOLEAN)
+            rigidbody_state->freeze_rotation = freeze_rotation.u.boolean ? True : False;
+
+        ComponentDescriptor descriptor = {
+            .name = "Rigidbody",
+            .kind = ComponentBuiltin,
+            .initialize = rigidbody_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, rigidbody_state) != Ok) {
+            rigidbody_component_dispose(rigidbody_state);
+            log_err("Failed to add rigidbody component to actor '%s'", actor_id);
             return Err;
         }
     }

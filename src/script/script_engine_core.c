@@ -53,6 +53,9 @@ int luaopen_engine(lua_State *lua_state) {
     luaL_requiref(lua_state, "Engine.Collider", luaopen_engine_collider, 0);
     lua_setfield(lua_state, -2, "Collider");
 
+    luaL_requiref(lua_state, "Engine.Rigidbody", luaopen_engine_rigidbody, 0);
+    lua_setfield(lua_state, -2, "Rigidbody");
+
     luaL_requiref(lua_state, "Engine.Scene", luaopen_engine_scene, 0);
     lua_setfield(lua_state, -2, "Scene");
 

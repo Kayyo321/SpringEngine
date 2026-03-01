@@ -162,6 +162,8 @@ static result register_engine_libraries(ScriptRuntime *runtime) {
         return Err;
     if (register_preload_module(runtime->lua_state, "Engine.Collider", luaopen_engine_collider) != Ok)
         return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.Rigidbody", luaopen_engine_rigidbody) != Ok)
+        return Err;
     if (register_preload_module(runtime->lua_state, "Engine.Scene", luaopen_engine_scene) != Ok)
         return Err;
     if (register_preload_module(runtime->lua_state, "Engine.DJ", luaopen_engine_dj) != Ok)
@@ -187,6 +189,9 @@ static const char *resolve_component_name_alias(const char *component_name) {
 
     if (strcmp(component_name, "AnimConf") == 0)
         return "AnimatedSprite";
+
+    if (strcmp(component_name, "Rigidbody2D") == 0)
+        return "Rigidbody";
 
     return component_name;
 }
@@ -309,6 +314,14 @@ static ColliderComponentData *find_actor_collider(Actor *actor) {
         return Null;
 
     return (ColliderComponentData *)component->data;
+}
+
+static RigidbodyComponentData *find_actor_rigidbody(Actor *actor) {
+    ActorComponent *component = find_builtin_component(actor, "Rigidbody");
+    if (!component)
+        return Null;
+
+    return (RigidbodyComponentData *)component->data;
 }
 
 static int lua_component_collider_set_offset(lua_State *lua_state) {
@@ -749,6 +762,27 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         lua_pushcclosure(lua_state, lua_component_collider_overlaps_point, 1);
         lua_setfield(lua_state, -2, "overlaps_point");
 
+        return 1;
+    }
+
+    if (strcmp(resolved_component, "Rigidbody") == 0) {
+        if (!find_actor_rigidbody(actor)) {
+            lua_pushnil(lua_state);
+            return 1;
+        }
+
+        luaL_requiref(lua_state, "Engine.Actor", luaopen_engine_actor, 1);
+        lua_getfield(lua_state, -1, "get_component");
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushstring(lua_state, "Rigidbody");
+
+        if (lua_pcall(lua_state, 2, 1, 0) != LUA_OK) {
+            lua_pop(lua_state, 2);
+            lua_pushnil(lua_state);
+            return 1;
+        }
+
+        lua_remove(lua_state, -2);
         return 1;
     }
 

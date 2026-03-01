@@ -1,16 +1,13 @@
 local Engine = require("Engine")
 local Input = require("Engine.Input")
 local Transform = require("Engine.Transform")
+local Rigidbody = require("Engine.Rigidbody")
 local DJ = require("Engine.DJ")
 local Time = require("Engine.Time")
 
 local player = {
 	move_speed = 45.0,
-	jump_speed = 78.0,
-	gravity = 240.0,
-	vertical_velocity = 0.0,
-	is_grounded = true,
-	ground_y = 0.0,
+	jump_force = 78.0,
 	apex_sfx_played = true,
 	apex_velocity_threshold = 6.0,
 }
@@ -49,13 +46,12 @@ function player:awake()
 end
 
 function player:start()
-	self.vertical_velocity = 0.0
-	self.is_grounded = true
 	self.apex_sfx_played = true
-	if Transform.get_position then
-		local _, position_y, _ = Transform.get_position()
-		self.ground_y = position_y or 0.0
+
+	if Rigidbody.set_velocity then
+		Rigidbody.set_velocity(0.0, 0.0)
 	end
+
 	if DJ.load_sound then
 		DJ.load_sound("assets/Sounds/stomp-sfx.wav", "stomp-sfx")
 	end
@@ -94,31 +90,26 @@ function player:update()
 		jump_pressed = true
 	end
 
-	if jump_pressed and self.is_grounded then
-		self.vertical_velocity = -self.jump_speed
-		self.is_grounded = false
+	local is_grounded = true
+	if Rigidbody.is_grounded then
+		is_grounded = Rigidbody.is_grounded()
+	end
+
+	if jump_pressed and is_grounded and Rigidbody.apply_force then
+		Rigidbody.apply_force(0.0, -1.0, self.jump_force)
 		self.apex_sfx_played = false
 	end
 
-	self.vertical_velocity = self.vertical_velocity + self.gravity * delta_time
-
-	if Transform.translate then
-		Transform.translate(0.0, self.vertical_velocity * delta_time, 0.0)
-	end
-
-	if Transform.get_position and Transform.set_position then
-		local position_x, position_y, position_z = Transform.get_position()
-		if position_y >= self.ground_y then
-			Transform.set_position(position_x, self.ground_y, position_z)
-			self.vertical_velocity = 0.0
-			self.is_grounded = true
-		end
+	local vertical_velocity = 0.0
+	if Rigidbody.get_velocity then
+		local _, velocity_y = Rigidbody.get_velocity()
+		vertical_velocity = velocity_y or 0.0
 	end
 
 	if anim_conf and anim_conf.set_number then
 		anim_conf.set_number("speed", horizontal_speed)
-		anim_conf.set_number("vertical_speed", self.vertical_velocity)
-		anim_conf.set_number("grounded", self.is_grounded and 1.0 or 0.0)
+		anim_conf.set_number("vertical_speed", vertical_velocity)
+		anim_conf.set_number("grounded", is_grounded and 1.0 or 0.0)
 
 		if anim_conf.get_number and (not self.apex_sfx_played) then
 			local config_vertical_speed = anim_conf.get_number("vertical_speed")
