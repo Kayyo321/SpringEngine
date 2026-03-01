@@ -42,6 +42,8 @@ struct Actor {
     Heap id_heap;
     char *id;
     boolean enabled;
+    boolean destroy_on_load;
+    boolean pending_destroy;
     int layer;
     ActorTransform transform;
 

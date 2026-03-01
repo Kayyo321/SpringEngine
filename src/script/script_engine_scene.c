@@ -1,5 +1,11 @@
 #include "script_runtime_internal.h"
 
+static int lua_scene_actor_destroy(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    lua_pushboolean(lua_state, runtime_destroy_actor(actor_id) == Ok ? 1 : 0);
+    return 1;
+}
+
 static void lua_scene_push_actor_table(lua_State *lua_state, Actor *actor) {
     if (!lua_state || !actor) {
         lua_pushnil(lua_state);
@@ -25,6 +31,10 @@ static void lua_scene_push_actor_table(lua_State *lua_state, Actor *actor) {
     lua_pushnumber(lua_state, actor->transform.position.z);
     lua_setfield(lua_state, -2, "z");
     lua_setfield(lua_state, -2, "position");
+
+    lua_pushstring(lua_state, actor->id ? actor->id : "");
+    lua_pushcclosure(lua_state, lua_scene_actor_destroy, 1);
+    lua_setfield(lua_state, -2, "destroy");
 }
 
 static int lua_scene_find_by_id(lua_State *lua_state) {
@@ -129,11 +139,64 @@ static int lua_scene_current(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_scene_instantiate_prefab(lua_State *lua_state) {
+    const char *prefab_ref_id = luaL_checkstring(lua_state, 1);
+    const int argument_count = lua_gettop(lua_state);
+    const boolean has_position = argument_count >= 4 ? True : False;
+
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (has_position) {
+        x = (float)luaL_checknumber(lua_state, 2);
+        y = (float)luaL_checknumber(lua_state, 3);
+        z = (float)luaL_checknumber(lua_state, 4);
+    }
+
+    char actor_id[128] = {0};
+    if (runtime_instantiate_prefab(prefab_ref_id, has_position, x, y, z, actor_id, sizeof(actor_id)) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_newtable(lua_state);
+    lua_pushstring(lua_state, actor_id);
+    lua_setfield(lua_state, -2, "id");
+
+    lua_pushstring(lua_state, actor_id);
+    lua_pushcclosure(lua_state, lua_scene_actor_destroy, 1);
+    lua_setfield(lua_state, -2, "destroy");
+
+    return 1;
+}
+
+static int lua_scene_set_destroy_on_load(lua_State *lua_state) {
+    const char *actor_id = luaL_checkstring(lua_state, 1);
+    const boolean destroy_on_load = lua_toboolean(lua_state, 2) ? True : False;
+    lua_pushboolean(lua_state, runtime_set_actor_destroy_on_load(actor_id, destroy_on_load) == Ok ? 1 : 0);
+    return 1;
+}
+
+static int lua_scene_get_destroy_on_load(lua_State *lua_state) {
+    const char *actor_id = luaL_checkstring(lua_state, 1);
+    boolean destroy_on_load = False;
+    if (runtime_get_actor_destroy_on_load(actor_id, &destroy_on_load) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, destroy_on_load ? 1 : 0);
+    return 1;
+}
+
 static const luaL_Reg scene_methods[] = {
     {"find_by_id", lua_scene_find_by_id},
     {"find_first_by_layer", lua_scene_find_first_by_layer},
     {"find_all_by_layer", lua_scene_find_all_by_layer},
     {"actor_count", lua_scene_actor_count},
+    {"instantiate_prefab", lua_scene_instantiate_prefab},
+    {"set_destroy_on_load", lua_scene_set_destroy_on_load},
+    {"get_destroy_on_load", lua_scene_get_destroy_on_load},
     {"load", lua_scene_load},
     {"current", lua_scene_current},
     {NULL, NULL},

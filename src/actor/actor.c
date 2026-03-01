@@ -54,6 +54,8 @@ void actor_init(Actor *actor, char *id, boolean enabled, int layer) {
     }
 
     actor->enabled = enabled;
+    actor->destroy_on_load = True;
+    actor->pending_destroy = False;
     actor->layer = layer;
     actor_transform_reset(actor);
     actor->components_heap = NullHeap;

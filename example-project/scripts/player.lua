@@ -6,13 +6,13 @@ local Time = require("Engine.Time")
 
 local player = {
 	move_speed = 45.0,
-	jump_speed = 18.0,
-	gravity = 60.0,
+	jump_speed = 78.0,
+	gravity = 240.0,
 	vertical_velocity = 0.0,
 	is_grounded = true,
 	ground_y = 0.0,
 	apex_sfx_played = true,
-	apex_velocity_threshold = 2.0,
+	apex_velocity_threshold = 6.0,
 }
 
 local function log_message(message)

@@ -6,6 +6,10 @@
 result run_project_runtime(const char *project_path);
 result runtime_request_scene_load(const char *scene_path);
 const char *runtime_current_scene_path(void);
+result runtime_instantiate_prefab(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size);
+result runtime_destroy_actor(const char *actor_id);
+result runtime_set_actor_destroy_on_load(const char *actor_id, boolean destroy_on_load);
+result runtime_get_actor_destroy_on_load(const char *actor_id, boolean *out_destroy_on_load);
 result runtime_ui_node_exists(const char *document_id, const char *node_id);
 result runtime_ui_set_visible(const char *document_id, const char *node_id, boolean visible);
 result runtime_ui_set_text(const char *document_id, const char *node_id, const char *text);

@@ -331,10 +331,17 @@ static int lua_actor_get_anchor_position(lua_State *lua_state) {
     return 3;
 }
 
+static int lua_actor_destroy(lua_State *lua_state) {
+    const char *actor_id = luaL_checkstring(lua_state, 1);
+    lua_pushboolean(lua_state, runtime_destroy_actor(actor_id) == Ok ? 1 : 0);
+    return 1;
+}
+
 static const luaL_Reg actor_methods[] = {
     {"get_position", lua_actor_get_position},
     {"get_anchor_position", lua_actor_get_anchor_position},
     {"get_component", lua_actor_get_component},
+    {"destroy", lua_actor_destroy},
     {NULL, NULL},
 };
 

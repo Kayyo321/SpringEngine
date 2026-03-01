@@ -5,8 +5,8 @@ local Time = require("Engine.Time")
 
 local camera_follow = {
     target_actor_id = "player_spawn",
-    follow_speed = 5.0,
-    follow_offset = { x = 0.0, y = 5.0, z = 12.0 },
+    follow_speed = 12.0,
+    follow_offset = { x = 0.0, y = 0.0, z = 12.0 },
 }
 
 local function log_message(message)

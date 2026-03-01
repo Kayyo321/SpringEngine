@@ -26,7 +26,16 @@
 enum {
     RuntimeMaxAutoloadActors = 128,
     RuntimeMaxAutoloadActorIdLength = 128,
+    RuntimeMaxPendingPrefabInstantiations = 256,
+    RuntimeMaxRuntimeActorIdLength = 128,
 };
+
+typedef struct {
+    char actor_id[RuntimeMaxRuntimeActorIdLength];
+    char prefab_ref_id[RuntimeMaxRuntimeActorIdLength];
+    boolean has_position;
+    ActorTransform transform;
+} PendingPrefabInstantiation;
 
 typedef struct {
     ActorRegistry actor_registry;
@@ -38,6 +47,8 @@ typedef struct {
     boolean active;
     boolean has_pending_scene_load;
     usize autoload_actor_count;
+    usize pending_prefab_instantiation_count;
+    usize prefab_copy_counter;
     char project_root[PATH_MAX];
     char scenes_root[PATH_MAX];
     char prefabs_root[PATH_MAX];
@@ -46,15 +57,26 @@ typedef struct {
     char current_scene_path[PATH_MAX];
     char pending_scene_path[PATH_MAX];
     char autoload_actor_ids[RuntimeMaxAutoloadActors][RuntimeMaxAutoloadActorIdLength];
+    PendingPrefabInstantiation pending_prefab_instantiations[RuntimeMaxPendingPrefabInstantiations];
     UiRuntime *ui_runtime;
 } RuntimeState;
 
 static RuntimeState runtime_state;
 
 static result join_path(const char *base, const char *path, char *out_path, usize out_size);
+static result parent_directory(const char *path, char *out_dir, usize out_size);
 static result parse_toml_file(const char *path, toml_result_t *out_parsed);
 static result load_autoload_actors(toml_datum_t autoload_toptab);
 static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab, const char *prefabs_root);
+static result instantiate_actor_from_table(const char *actor_id, toml_datum_t actor_table, toml_datum_t prefab_refs, const char *prefabs_root, const char *success_log_label);
+static Actor *find_actor_by_id(const char *actor_id);
+static void refresh_component_actor_backrefs(void);
+static void dispose_actor_components(Actor *actor);
+static void destroy_actor_at_index(usize actor_index);
+static void process_pending_actor_destroys(void);
+static result process_pending_prefab_instantiations(void);
+static result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size);
+static result resolve_prefab_path_from_ref(const char *prefab_ref_id, char *out_prefab_path, usize out_prefab_path_size);
 static result load_scene_runtime(const char *scene_path);
 static void process_pending_scene_load(void);
 static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t actor_table, toml_datum_t *out_animated_sprite_table);
@@ -62,6 +84,8 @@ static result animated_sprite_component_initialize(Actor *actor, ActorComponent 
 static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
 static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor);
 static void animated_sprite_component_dispose(AnimatedSpriteState *state);
+static void static_sprite_component_dispose(StaticSpriteState *state);
+static void camera_component_dispose(CameraComponentData *state);
 
 static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     if (!out_number)
@@ -78,6 +102,203 @@ static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     }
 
     return False;
+}
+
+static Actor *find_actor_by_id(const char *actor_id) {
+    if (!actor_id || actor_id[0] == '\0')
+        return Null;
+
+    for (usize index = 0; index < runtime_state.actor_registry.actor_count; ++index) {
+        Actor *actor = &runtime_state.actor_registry.actors[index];
+        if (!actor->id)
+            continue;
+
+        if (strcmp(actor->id, actor_id) == 0)
+            return actor;
+    }
+
+    return Null;
+}
+
+static void refresh_component_actor_backrefs(void) {
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+            ActorComponent *component = &actor->components[component_index];
+            if (component->descriptor.kind != ComponentBuiltin || !component->descriptor.name || !component->data)
+                continue;
+
+            if (strcmp(component->descriptor.name, "AnimatedSprite") == 0) {
+                AnimatedSpriteState *state = (AnimatedSpriteState *)component->data;
+                state->actor = actor;
+                continue;
+            }
+
+            if (strcmp(component->descriptor.name, "StaticSprite") == 0) {
+                StaticSpriteState *state = (StaticSpriteState *)component->data;
+                state->actor = actor;
+            }
+        }
+    }
+}
+
+static void dispose_actor_components(Actor *actor) {
+    if (!actor)
+        return;
+
+    for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+        ActorComponent *component = &actor->components[component_index];
+        if (component->descriptor.kind == ComponentScript)
+            script_component_destroy(actor, component, &runtime_state.script_runtime);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
+            static_sprite_component_dispose((StaticSpriteState *)component->data);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
+            animated_sprite_component_dispose((AnimatedSpriteState *)component->data);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Camera") == 0)
+            camera_component_dispose((CameraComponentData *)component->data);
+    }
+}
+
+static void destroy_actor_at_index(usize actor_index) {
+    if (actor_index >= runtime_state.actor_registry.actor_count)
+        return;
+
+    Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+    dispose_actor_components(actor);
+    actor_dispose(actor);
+
+    const usize last_index = runtime_state.actor_registry.actor_count - 1;
+    if (actor_index < last_index)
+        memmove(&runtime_state.actor_registry.actors[actor_index], &runtime_state.actor_registry.actors[actor_index + 1], (last_index - actor_index) * sizeof(Actor));
+
+    runtime_state.actor_registry.actor_count--;
+    refresh_component_actor_backrefs();
+}
+
+static void process_pending_actor_destroys(void) {
+    usize actor_index = 0;
+    while (actor_index < runtime_state.actor_registry.actor_count) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->pending_destroy) {
+            actor_index++;
+            continue;
+        }
+
+        destroy_actor_at_index(actor_index);
+    }
+}
+
+static result resolve_prefab_path_from_ref(const char *prefab_ref_id, char *out_prefab_path, usize out_prefab_path_size) {
+    if (!prefab_ref_id || prefab_ref_id[0] == '\0' || !out_prefab_path || out_prefab_path_size == 0)
+        return Err;
+
+    const char *resolved_ref_path = prefab_ref_id;
+
+    if (runtime_state.current_scene_path[0] != '\0') {
+        toml_result_t scene_toml = {0};
+        if (parse_toml_file(runtime_state.current_scene_path, &scene_toml) == Ok) {
+            toml_datum_t scene_table = toml_get(scene_toml.toptab, "Scene");
+            toml_datum_t scene_data_file = toml_get(scene_table, "data_file");
+            if (scene_data_file.type == TOML_STRING && scene_data_file.u.s && scene_data_file.u.s[0] != '\0') {
+                char scene_directory[PATH_MAX] = {0};
+                if (parent_directory(runtime_state.current_scene_path, scene_directory, sizeof(scene_directory)) == Ok) {
+                    char scene_data_path[PATH_MAX] = {0};
+                    if (join_path(scene_directory, scene_data_file.u.s, scene_data_path, sizeof(scene_data_path)) == Ok) {
+                        toml_result_t scene_data_toml = {0};
+                        if (parse_toml_file(scene_data_path, &scene_data_toml) == Ok) {
+                            toml_datum_t prefab_refs = toml_get(scene_data_toml.toptab, "PrefabRefs");
+                            if (prefab_refs.type == TOML_TABLE) {
+                                toml_datum_t mapped = toml_get(prefab_refs, prefab_ref_id);
+                                if (mapped.type == TOML_STRING && mapped.u.s && mapped.u.s[0] != '\0')
+                                    resolved_ref_path = mapped.u.s;
+                            }
+                            toml_free(scene_data_toml);
+                        }
+                    }
+                }
+            }
+            toml_free(scene_toml);
+        }
+    }
+
+    if (join_path(runtime_state.prefabs_root, resolved_ref_path, out_prefab_path, out_prefab_path_size) == Ok && access(out_prefab_path, F_OK) == 0)
+        return Ok;
+
+    if (join_path(runtime_state.project_root, resolved_ref_path, out_prefab_path, out_prefab_path_size) != Ok)
+        return Err;
+
+    return access(out_prefab_path, F_OK) == 0 ? Ok : Err;
+}
+
+static result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size) {
+    if (!prefab_ref_id || prefab_ref_id[0] == '\0')
+        return Err;
+
+    if (runtime_state.pending_prefab_instantiation_count >= RuntimeMaxPendingPrefabInstantiations)
+        return Err;
+
+    runtime_state.prefab_copy_counter++;
+    char generated_id[RuntimeMaxRuntimeActorIdLength] = {0};
+    if (snprintf(generated_id, sizeof(generated_id), "prefab(copy%zu)", runtime_state.prefab_copy_counter) >= (int)sizeof(generated_id))
+        return Err;
+
+    if (out_actor_id && out_actor_id_size > 0) {
+        if (snprintf(out_actor_id, out_actor_id_size, "%s", generated_id) >= (int)out_actor_id_size)
+            return Err;
+    }
+
+    PendingPrefabInstantiation *pending = &runtime_state.pending_prefab_instantiations[runtime_state.pending_prefab_instantiation_count++];
+    memset(pending, 0, sizeof(*pending));
+
+    if (snprintf(pending->actor_id, sizeof(pending->actor_id), "%s", generated_id) >= (int)sizeof(pending->actor_id))
+        return Err;
+    if (snprintf(pending->prefab_ref_id, sizeof(pending->prefab_ref_id), "%s", prefab_ref_id) >= (int)sizeof(pending->prefab_ref_id))
+        return Err;
+
+    pending->has_position = has_position;
+    pending->transform.position = (ActorVector3){x, y, z};
+    pending->transform.rotation_euler = (ActorVector3){0.0f, 0.0f, 0.0f};
+    pending->transform.scale = (ActorVector3){1.0f, 1.0f, 1.0f};
+    return Ok;
+}
+
+static result process_pending_prefab_instantiations(void) {
+    if (runtime_state.pending_prefab_instantiation_count == 0)
+        return Ok;
+
+    for (usize index = 0; index < runtime_state.pending_prefab_instantiation_count; ++index) {
+        PendingPrefabInstantiation *pending = &runtime_state.pending_prefab_instantiations[index];
+        char prefab_path[PATH_MAX] = {0};
+        if (resolve_prefab_path_from_ref(pending->prefab_ref_id, prefab_path, sizeof(prefab_path)) != Ok) {
+            log_err("Failed to resolve prefab ref '%s' for actor '%s'", pending->prefab_ref_id, pending->actor_id);
+            continue;
+        }
+
+        toml_result_t prefab_toml = {0};
+        if (parse_toml_file(prefab_path, &prefab_toml) != Ok)
+            continue;
+
+        toml_datum_t prefab_table = toml_get(prefab_toml.toptab, "Prefab");
+        if (prefab_table.type != TOML_TABLE) {
+            log_err("Prefab config '%s' is missing [Prefab] table", prefab_path);
+            toml_free(prefab_toml);
+            continue;
+        }
+
+        if (instantiate_actor_from_table(pending->actor_id, prefab_table, (toml_datum_t){0}, Null, "Instantiated prefab") == Ok && pending->has_position) {
+            Actor *spawned = find_actor_by_id(pending->actor_id);
+            if (spawned)
+                spawned->transform = pending->transform;
+        }
+
+        toml_free(prefab_toml);
+    }
+
+    runtime_state.pending_prefab_instantiation_count = 0;
+    return Ok;
 }
 
 static result read_xy_array(toml_datum_t table, const char *key, Vector2 *out_position) {
@@ -1308,6 +1529,8 @@ static void frame_update(void) {
         return;
 
     process_pending_scene_load();
+    (void)process_pending_prefab_instantiations();
+    process_pending_actor_destroys();
 
     script_runtime_begin_frame(&runtime_state.script_runtime);
     const float delta_time = GetFrameTime();
@@ -1327,8 +1550,13 @@ static void frame_update(void) {
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
                 animated_sprite_component_update((AnimatedSpriteState *)component->data, delta_time);
+
+            if (actor->pending_destroy)
+                break;
         }
     }
+
+    process_pending_actor_destroys();
 
     runtime_state.active_camera = Null;
     runtime_state.active_camera_actor = Null;
@@ -1544,11 +1772,20 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
     if (!actor_id || !success_log_label || actor_table.type != TOML_TABLE)
         return Err;
 
+    if (find_actor_by_id(actor_id)) {
+        log_err("Actor id '%s' already exists", actor_id);
+        return Err;
+    }
+
     Actor *actor = actor_registry_create_actor(&runtime_state.actor_registry, (char *)actor_id, read_actor_enabled(actor_table), read_actor_layer(actor_table));
     if (!actor) {
         log_err("Failed to create actor '%s'", actor_id);
         return Err;
     }
+
+    actor->destroy_on_load = True;
+    actor->pending_destroy = False;
+    refresh_component_actor_backrefs();
 
     if (read_actor_transform(actor_table, &actor->transform) != Ok) {
         log_err("Actor '%s' has invalid Transform values", actor_id);
@@ -1902,6 +2139,8 @@ static result load_scene_runtime(const char *scene_path) {
         goto fail;
     autoload_ok = True;
 
+    runtime_state.pending_prefab_instantiation_count = 0;
+
     dispose_runtime_components();
     actor_registry_dispose(&runtime_state.actor_registry);
     actor_registry_init(&runtime_state.actor_registry);
@@ -2246,6 +2485,49 @@ const char *runtime_current_scene_path(void) {
         return Null;
 
     return runtime_state.current_scene_path;
+}
+
+result runtime_instantiate_prefab(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size) {
+    if (!runtime_state.active)
+        return Err;
+
+    return enqueue_prefab_instantiation(prefab_ref_id, has_position, x, y, z, out_actor_id, out_actor_id_size);
+}
+
+result runtime_destroy_actor(const char *actor_id) {
+    if (!runtime_state.active || !actor_id || actor_id[0] == '\0')
+        return Err;
+
+    Actor *actor = find_actor_by_id(actor_id);
+    if (!actor)
+        return Err;
+
+    actor->pending_destroy = True;
+    return Ok;
+}
+
+result runtime_set_actor_destroy_on_load(const char *actor_id, boolean destroy_on_load) {
+    if (!runtime_state.active || !actor_id || actor_id[0] == '\0')
+        return Err;
+
+    Actor *actor = find_actor_by_id(actor_id);
+    if (!actor)
+        return Err;
+
+    actor->destroy_on_load = destroy_on_load ? True : False;
+    return Ok;
+}
+
+result runtime_get_actor_destroy_on_load(const char *actor_id, boolean *out_destroy_on_load) {
+    if (!runtime_state.active || !actor_id || actor_id[0] == '\0' || !out_destroy_on_load)
+        return Err;
+
+    Actor *actor = find_actor_by_id(actor_id);
+    if (!actor)
+        return Err;
+
+    *out_destroy_on_load = actor->destroy_on_load ? True : False;
+    return Ok;
 }
 
 result runtime_ui_node_exists(const char *document_id, const char *node_id) {
