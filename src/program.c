@@ -10,6 +10,10 @@ static void log_usage(void) {
     log_msg("SpringEngine Usage:");
     log_msg("  --version | -v");
     log_msg("  --run <project_path> | -r <project_path>");
+    log_msg("  --make-proj <path_to_put_it> <project_name> | -mp <path_to_put_it> <project_name>");
+    log_msg("  --make-script <project_root> <script_name> | -ms <project_root> <script_name>");
+    log_msg("  --make-scene <project_root> <scene_name> | -msc <project_root> <scene_name>");
+    log_msg("  --make-ui-doc <project_root> <doc_name> | -mud <project_root> <doc_name>");
 }
 
 static void version(void) {
