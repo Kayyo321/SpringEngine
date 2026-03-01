@@ -1,15 +1,18 @@
 #include "windowman.h"
 
-const WindowConfig DefaultWindowConfig = (WindowConfig) {
-    .title = "SpringEngine-" Version " Window",
-    .width = 900,
-    .height = 600,
-    .target_fps = 60,
-    .resizable = True,
-    .clear_color = DARKGRAY,
-};
+#define DefaultWindowConfigLiteral { \
+    .title = "SpringEngine-" Version " Window", \
+    .width = 900, \
+    .height = 600, \
+    .target_fps = 60, \
+    .resizable = True, \
+    .clear_color = {80, 80, 80, 255}, \
+} \
 
-static WindowConfig current_config = DefaultWindowConfig;
+// Extern
+const WindowConfig DefaultWindowConfig = DefaultWindowConfigLiteral;
+
+static WindowConfig current_config = DefaultWindowConfigLiteral;
 
 #ifdef TESTING
 static void default_init_window(int width, int height, const char *title) {

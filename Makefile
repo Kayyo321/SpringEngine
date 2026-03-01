@@ -5,6 +5,8 @@ LDFLAGS ?=
 
 CPPFLAGS += -D_POSIX_C_SOURCE=200809L
 
+UNAME_S := $(shell uname -s)
+
 SRCDIR := src
 LIBDIR := lib
 OBJDIR := obj
@@ -40,8 +42,11 @@ LIB_INCLUDE_DIRS := \
 CPPFLAGS += $(addprefix -I,$(SRC_INCLUDE_DIRS))
 CPPFLAGS += $(addprefix -I,$(LIB_INCLUDE_DIRS))
 
-ifeq ($(wildcard $(LUA_STATIC_LIB)),)
-$(error Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make macosx && mkdir -p lib && cp -f src/*.a lib/)
+ifeq ($(UNAME_S),Linux)
+RAYLIB_CFLAGS := $(shell pkg-config --cflags raylib 2>/dev/null)
+RAYLIB_LIBS := $(shell pkg-config --libs raylib 2>/dev/null)
+CPPFLAGS += $(RAYLIB_CFLAGS)
+LDLIBS += $(RAYLIB_LIBS)
 endif
 
 ifeq ($(wildcard $(TOMLC17_DIR)/include/tomlc17.h),)
@@ -75,18 +80,40 @@ LDLIBS += $(LIB_FILES)
 LDLIBS += $(LUA_STATIC_LIB)
 LDLIBS += $(TOMLC17_STATIC_LIB)
 
-UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
 LDFLAGS += -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreAudio -framework AudioToolbox -framework CoreFoundation -framework AppKit
 LDLIBS += -lm
 endif
 
-.PHONY: all clean fclean re test check-allocators
+.PHONY: all clean fclean re test check-allocators prepare-lua check-raylib
 
-all: check-allocators $(TARGET)
+all: check-allocators prepare-lua check-raylib $(TARGET)
 
-$(TARGET): $(OBJ) $(TOMLC17_STATIC_LIB) | $(BINDIR)
+$(TARGET): $(OBJ) $(LUA_STATIC_LIB) $(TOMLC17_STATIC_LIB) | $(BINDIR)
 	$(CC) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@
+
+prepare-lua:
+ifeq ($(UNAME_S),Linux)
+	@if [ ! -f "$(LUA_STATIC_LIB)" ] || file "$(LUA_STATIC_LIB)" | grep -q 'Mach-O'; then \
+		echo "Building Linux Lua static library..."; \
+		$(MAKE) -C $(LUA_DIR)/src clean linux; \
+		mkdir -p $(LUA_DIR)/lib; \
+		cp -f $(LUA_DIR)/src/liblua.a $(LUA_STATIC_LIB); \
+	fi
+else
+	@if [ ! -f "$(LUA_STATIC_LIB)" ]; then \
+		echo "Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make macosx && mkdir -p lib && cp -f src/*.a lib/"; \
+		exit 1; \
+	fi
+endif
+
+check-raylib:
+ifeq ($(UNAME_S),Linux)
+	@if [ -z "$(RAYLIB_LIBS)" ] && ! find $(LIBDIR)/raylib -type f \( -name 'libraylib.a' -o -name 'libraylib.so' -o -name 'libraylib.so.*' \) | grep -q .; then \
+		echo "Missing raylib link flags on Linux. Install raylib development package (pkg-config module 'raylib') or place a raylib library under $(LIBDIR)/raylib."; \
+		exit 1; \
+	fi
+endif
 
 $(TOMLC17_STATIC_LIB):
 	@$(MAKE) -C $(TOMLC17_DIR) clean install prefix=./
