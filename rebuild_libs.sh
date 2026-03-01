@@ -19,7 +19,17 @@ EOF
 fi
 
 echo "[1/4] Collecting current static libraries..."
-mapfile -t existing_archives < <(find "$LIB_DIR" -type f -name '*.a' | sort)
+read_lines_into_array() {
+  local array_name="$1"
+  shift
+
+  eval "$array_name=()"
+  while IFS= read -r line; do
+    eval "$array_name+=(\"\$line\")"
+  done < <("$@" | sort)
+}
+
+read_lines_into_array existing_archives find "$LIB_DIR" -type f -name '*.a'
 
 if ((${#existing_archives[@]} == 0)); then
   echo "No static libraries found under $LIB_DIR"
@@ -36,6 +46,7 @@ fi
 echo "[3/4] Rebuilding vendored libraries..."
 
 required_archives=()
+declare -a RAYLIB_LINUX_BACKEND_ARGS=()
 
 prompt_install_raylib_deps() {
   if [[ ! -t 0 ]]; then
@@ -45,7 +56,7 @@ prompt_install_raylib_deps() {
 
   local answer
   read -r -p "raylib build appears to be missing dependencies. Try to install them automatically? (y/n): " answer
-  case "${answer,,}" in
+  case "$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')" in
     y|yes) return 0 ;;
     *)
       echo "Skipping dependency installation." >&2
@@ -85,8 +96,7 @@ install_raylib_deps_linux() {
 }
 
 raylib_make_args_for_linux() {
-  local -n _out_args=$1
-  _out_args=()
+  RAYLIB_LINUX_BACKEND_ARGS=()
   local sdl_include_dir=""
   local sdl_libs=""
 
@@ -99,16 +109,16 @@ raylib_make_args_for_linux() {
   fi
 
   if pkg-config --exists sdl2; then
-    _out_args+=("PLATFORM=PLATFORM_DESKTOP_SDL")
+    RAYLIB_LINUX_BACKEND_ARGS+=("PLATFORM=PLATFORM_DESKTOP_SDL")
 
     sdl_include_dir="$(pkg-config --cflags-only-I sdl2 2>/dev/null | tr ' ' '\n' | sed -n 's/^-I//p' | head -n1 || true)"
     if [[ -n "$sdl_include_dir" ]]; then
-      _out_args+=("SDL_INCLUDE_PATH=$sdl_include_dir")
+      RAYLIB_LINUX_BACKEND_ARGS+=("SDL_INCLUDE_PATH=$sdl_include_dir")
     fi
 
     sdl_libs="$(pkg-config --libs sdl2 2>/dev/null || true)"
     if [[ -n "$sdl_libs" ]]; then
-      _out_args+=("SDL_LIBRARIES=$sdl_libs")
+      RAYLIB_LINUX_BACKEND_ARGS+=("SDL_LIBRARIES=$sdl_libs")
     fi
 
     return 0
@@ -121,11 +131,12 @@ raylib_make_args_for_linux() {
 
 build_raylib() {
   local -a raylib_make_args=("RAYLIB_LIBTYPE=STATIC" "RAYLIB_RELEASE_PATH=../lib")
-  local -a linux_backend_args=()
   local retried=0
 
-  raylib_make_args_for_linux linux_backend_args
-  raylib_make_args+=("${linux_backend_args[@]}")
+  raylib_make_args_for_linux
+  if ((${#RAYLIB_LINUX_BACKEND_ARGS[@]} > 0)); then
+    raylib_make_args+=("${RAYLIB_LINUX_BACKEND_ARGS[@]}")
+  fi
 
   if [[ " ${raylib_make_args[*]} " == *" PLATFORM=PLATFORM_DESKTOP_SDL "* ]]; then
     echo "  using SDL backend for raylib"
@@ -152,12 +163,21 @@ build_raylib() {
     retried=1
 
     raylib_make_args=("RAYLIB_LIBTYPE=STATIC" "RAYLIB_RELEASE_PATH=../lib")
-    linux_backend_args=()
-    raylib_make_args_for_linux linux_backend_args
-    raylib_make_args+=("${linux_backend_args[@]}")
+    raylib_make_args_for_linux
+    if ((${#RAYLIB_LINUX_BACKEND_ARGS[@]} > 0)); then
+      raylib_make_args+=("${RAYLIB_LINUX_BACKEND_ARGS[@]}")
+    fi
 
     echo "Retrying raylib rebuild after dependency installation..."
   done
+}
+
+lua_make_target_for_host() {
+  case "$(uname -s)" in
+    Linux) echo "linux" ;;
+    Darwin) echo "macosx" ;;
+    *) echo "posix" ;;
+  esac
 }
 
 if [[ -f "$LIB_DIR/raylib/src/Makefile" ]]; then
@@ -169,7 +189,7 @@ fi
 
 if [[ -d "$LIB_DIR/lua-5.4.6/src" ]]; then
   echo "- Rebuilding Lua"
-  make -C "$LIB_DIR/lua-5.4.6/src" clean linux
+  make -C "$LIB_DIR/lua-5.4.6/src" clean "$(lua_make_target_for_host)"
   mkdir -p "$LIB_DIR/lua-5.4.6/lib"
   cp -f "$LIB_DIR/lua-5.4.6/src/liblua.a" "$LIB_DIR/lua-5.4.6/lib/liblua.a"
   required_archives+=("$LIB_DIR/lua-5.4.6/lib/liblua.a")
@@ -184,7 +204,7 @@ if [[ -f "$LIB_DIR/tomlc17/Makefile" ]]; then
 fi
 
 echo "[4/4] Validating rebuild results..."
-mapfile -t rebuilt_archives < <(find "$LIB_DIR" -type f -name '*.a' | sort)
+read_lines_into_array rebuilt_archives find "$LIB_DIR" -type f -name '*.a'
 
 if ((${#rebuilt_archives[@]} == 0)); then
   echo "Error: no static libraries were rebuilt." >&2

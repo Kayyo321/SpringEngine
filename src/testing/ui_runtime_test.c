@@ -1,15 +1,16 @@
 #include "testing.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include "ui/ui_runtime.h"
 
 #include "common.h"
 
 #include "tomlc17.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
 static result write_text_file(const char *path, const char *contents) {
     if (!path || !contents)
@@ -24,6 +25,36 @@ static result write_text_file(const char *path, const char *contents) {
     return Ok;
 }
 
+static result create_temp_test_dir(char *path_template, usize path_template_size, const char **out_temp_dir) {
+    if (!path_template || !out_temp_dir || path_template_size == 0)
+        return Err;
+
+#if defined(__APPLE__)
+    int temp_fd = mkstemp(path_template);
+    if (temp_fd < 0)
+        return Err;
+
+    if (close(temp_fd) != 0)
+        return Err;
+
+    if (unlink(path_template) != 0)
+        return Err;
+
+    if (mkdir(path_template, 0700) != 0)
+        return Err;
+
+    *out_temp_dir = path_template;
+    return Ok;
+#else
+    char *temp_dir = mkdtemp(path_template);
+    if (!temp_dir)
+        return Err;
+
+    *out_temp_dir = temp_dir;
+    return Ok;
+#endif
+}
+
 void run_ui_runtime_tests(void) {
 #ifdef TESTING
     usize failed = 0;
@@ -31,9 +62,9 @@ void run_ui_runtime_tests(void) {
     log_msg("Running UI runtime tests...");
 
     char temp_dir_template[] = "/tmp/springengine-ui-runtime-XXXXXX";
-    char *temp_dir = mkdtemp(temp_dir_template);
-    if (!temp_dir) {
-        log_err("mkdtemp failed for ui runtime tests");
+    const char *temp_dir = Null;
+    if (create_temp_test_dir(temp_dir_template, sizeof(temp_dir_template), &temp_dir) != Ok || !temp_dir) {
+        log_err("temp directory creation failed for ui runtime tests");
         ++failed;
         record_test_result("UI runtime tests", failed);
         return;

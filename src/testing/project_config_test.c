@@ -1,13 +1,44 @@
 #include "testing.h"
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
 #include "config/project_config.h"
 
 #include "common.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+static result create_temp_test_dir(char *path_template, usize path_template_size, const char **out_temp_dir) {
+    if (!path_template || !out_temp_dir || path_template_size == 0)
+        return Err;
+
+#if defined(__APPLE__)
+    int temp_fd = mkstemp(path_template);
+    if (temp_fd < 0)
+        return Err;
+
+    if (close(temp_fd) != 0)
+        return Err;
+
+    if (unlink(path_template) != 0)
+        return Err;
+
+    if (mkdir(path_template, 0700) != 0)
+        return Err;
+
+    *out_temp_dir = path_template;
+    return Ok;
+#else
+    char *temp_dir = mkdtemp(path_template);
+    if (!temp_dir)
+        return Err;
+
+    *out_temp_dir = temp_dir;
+    return Ok;
+#endif
+}
 
 void run_project_config_tests(void) {
 #ifdef TESTING
@@ -16,9 +47,9 @@ void run_project_config_tests(void) {
     log_msg("Running project config tests...");
 
     char temp_dir_template[] = "/tmp/springengine-project-config-XXXXXX";
-    char *temp_dir = mkdtemp(temp_dir_template);
-    if (!temp_dir) {
-        log_err("mkdtemp failed for project config tests");
+    const char *temp_dir = Null;
+    if (create_temp_test_dir(temp_dir_template, sizeof(temp_dir_template), &temp_dir) != Ok || !temp_dir) {
+        log_err("temp directory creation failed for project config tests");
         ++failed;
     } else {
         char valid_conf_path[512] = {0};
