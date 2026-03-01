@@ -105,10 +105,6 @@ void run_actor_tests(void) {
 
     actor_registry_dispose(&registry);
 
-    if (failed == 0) {
-        log_msg("Actor tests passed.");
-    } else {
-        log_err("Actor tests failed: %lu failure(s).", failed);
-    }
+    record_test_result("Actor tests", failed);
 #endif // TESTING
 }

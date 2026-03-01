@@ -176,10 +176,6 @@ void run_window_tests(void) {
 
     windowman_reset_test_hooks();
 
-    if (failed == 0) {
-        log_msg("Windowman tests passed.");
-    } else {
-        log_err("Windowman tests failed: %lu failure(s).", failed);
-    }
+    record_test_result("Windowman tests", failed);
 #endif // TESTING
 }

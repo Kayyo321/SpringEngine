@@ -83,10 +83,6 @@ void run_allocator_tests(void) {
         ++failed;
     }
 
-    if (failed == 0) {
-        log_msg("Allocator tests passed.");
-    } else {
-        log_err("Allocator tests failed: %lu failure(s).", failed);
-    }
+    record_test_result("Allocator tests", failed);
 #endif // TESTING
 }
