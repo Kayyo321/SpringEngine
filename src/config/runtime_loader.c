@@ -13,6 +13,7 @@
 
 #include <dirent.h>
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -56,6 +57,11 @@ static result load_autoload_actors(toml_datum_t autoload_toptab);
 static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab, const char *prefabs_root);
 static result load_scene_runtime(const char *scene_path);
 static void process_pending_scene_load(void);
+static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t actor_table, toml_datum_t *out_animated_sprite_table);
+static result animated_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context);
+static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
+static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor);
+static void animated_sprite_component_dispose(AnimatedSpriteState *state);
 
 static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     if (!out_number)
@@ -285,6 +291,37 @@ static const char *find_static_sprite_texture(toml_datum_t actor_table, toml_dat
     return Null;
 }
 
+static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t actor_table, toml_datum_t *out_animated_sprite_table) {
+    if (out_animated_sprite_table)
+        *out_animated_sprite_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE || !out_animated_sprite_table)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t animated_sprite = toml_get(components, "AnimatedSprite");
+            if (animated_sprite.type == TOML_TABLE) {
+                *out_animated_sprite_table = animated_sprite;
+                return out_animated_sprite_table;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t animated_sprite = toml_get(components, "AnimatedSprite");
+        if (animated_sprite.type == TOML_TABLE) {
+            *out_animated_sprite_table = animated_sprite;
+            return out_animated_sprite_table;
+        }
+    }
+
+    return Null;
+}
+
 static result static_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context) {
     (void)actor;
     (void)context;
@@ -415,6 +452,508 @@ static void static_sprite_component_dispose(StaticSpriteState *state) {
     }
 
     state->attempted_load = False;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
+
+static boolean copy_toml_key(char *destination, usize destination_size, const char *source, int source_length) {
+    if (!destination || destination_size == 0 || !source || source_length < 0)
+        return False;
+
+    if ((usize)source_length + 1 > destination_size)
+        return False;
+
+    memcpy(destination, source, (usize)source_length);
+    destination[source_length] = '\0';
+    return True;
+}
+
+static int animated_sprite_find_sheet_index(const AnimatedSpriteState *state, const char *sheet_key) {
+    if (!state || !sheet_key || sheet_key[0] == '\0')
+        return -1;
+
+    for (int index = 0; index < state->sheet_count; ++index) {
+        if (strcmp(state->sheets[index].key, sheet_key) == 0)
+            return index;
+    }
+
+    return -1;
+}
+
+static int animated_sprite_find_state_index(const AnimatedSpriteState *state, const char *state_name) {
+    if (!state || !state_name || state_name[0] == '\0')
+        return -1;
+
+    for (int index = 0; index < state->state_count; ++index) {
+        if (strcmp(state->states[index].name, state_name) == 0)
+            return index;
+    }
+
+    return -1;
+}
+
+static AnimatedTransitionCondition animated_transition_condition_from_string(const char *value) {
+    if (!value || value[0] == '\0')
+        return AnimatedTransitionAlways;
+
+    if (strcmp(value, "moving") == 0)
+        return AnimatedTransitionMoving;
+
+    if (strcmp(value, "not_moving") == 0)
+        return AnimatedTransitionNotMoving;
+
+    return AnimatedTransitionAlways;
+}
+
+static boolean animated_transition_is_triggered(const AnimatedSpriteTransition *transition, float movement_speed) {
+    if (!transition)
+        return False;
+
+    switch (transition->condition) {
+        case AnimatedTransitionAlways:
+            return True;
+        case AnimatedTransitionMoving:
+            return movement_speed >= transition->speed_threshold;
+        case AnimatedTransitionNotMoving:
+            return movement_speed < transition->speed_threshold;
+        default:
+            return False;
+    }
+}
+
+static const AnimatedSpriteStateDef *animated_sprite_current_state(const AnimatedSpriteState *state) {
+    if (!state || state->current_state_index < 0 || state->current_state_index >= state->state_count)
+        return Null;
+
+    return &state->states[state->current_state_index];
+}
+
+static const AnimatedSpriteFrame *animated_sprite_current_frame(const AnimatedSpriteState *state) {
+    const AnimatedSpriteStateDef *state_definition = animated_sprite_current_state(state);
+    if (!state_definition || state_definition->frame_count <= 0)
+        return Null;
+
+    if (state->current_frame_offset < 0 || state->current_frame_offset >= state_definition->frame_count)
+        return Null;
+
+    const int frame_index = state_definition->frame_start + state->current_frame_offset;
+    if (frame_index < 0 || frame_index >= state->frame_count)
+        return Null;
+
+    return &state->frames[frame_index];
+}
+
+static result animated_sprite_ensure_sheet_loaded(AnimatedSpriteState *state, int sheet_index) {
+    if (!state || sheet_index < 0 || sheet_index >= state->sheet_count)
+        return Err;
+
+    AnimatedSpriteSheet *sheet = &state->sheets[sheet_index];
+    if (sheet->loaded)
+        return Ok;
+
+    if (sheet->attempted_load)
+        return Err;
+
+    sheet->attempted_load = True;
+    sheet->texture = LoadTexture(sheet->resolved_texture_path);
+    if (sheet->texture.id == 0) {
+        log_err("Failed to load animated sprite sheet '%s'", sheet->resolved_texture_path);
+        return Err;
+    }
+
+    sheet->loaded = True;
+    return Ok;
+}
+
+static result animated_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)actor;
+    (void)context;
+
+    if (!component || !component->data)
+        return Err;
+
+    AnimatedSpriteState *state = (AnimatedSpriteState *)component->data;
+    if (!state->anim_path[0])
+        return Err;
+
+    if (join_path(runtime_state.project_root, state->anim_path, state->resolved_anim_path, sizeof(state->resolved_anim_path)) != Ok) {
+        log_err("Failed to resolve animated sprite config path '%s'", state->anim_path);
+        return Err;
+    }
+
+    toml_result_t animation_toml = {0};
+    if (parse_toml_file(state->resolved_anim_path, &animation_toml) != Ok)
+        return Err;
+
+    result parse_result = Err;
+
+    toml_datum_t animation_table = toml_get(animation_toml.toptab, "Animation");
+    toml_datum_t sheets_table = toml_get(animation_toml.toptab, "Sheets");
+    if (animation_table.type != TOML_TABLE || sheets_table.type != TOML_TABLE) {
+        log_err("Animated sprite config '%s' must include [Animation] and [Sheets]", state->resolved_anim_path);
+        goto cleanup;
+    }
+
+    toml_datum_t default_state_name = toml_get(animation_table, "default");
+    if (default_state_name.type != TOML_STRING || !default_state_name.u.s || default_state_name.u.s[0] == '\0') {
+        log_err("Animated sprite config '%s' is missing Animation.default", state->resolved_anim_path);
+        goto cleanup;
+    }
+
+    for (int sheet_index = 0; sheet_index < sheets_table.u.tab.size; ++sheet_index) {
+        if (state->sheet_count >= AnimatedSpriteMaxSheets) {
+            log_err("Animated sprite config '%s' exceeded max sheet count (%d)", state->resolved_anim_path, AnimatedSpriteMaxSheets);
+            goto cleanup;
+        }
+
+        toml_datum_t texture_path = sheets_table.u.tab.value[sheet_index];
+        if (texture_path.type != TOML_STRING || !texture_path.u.s || texture_path.u.s[0] == '\0') {
+            log_err("Animated sprite config '%s' has invalid sheet path", state->resolved_anim_path);
+            goto cleanup;
+        }
+
+        AnimatedSpriteSheet *sheet = &state->sheets[state->sheet_count];
+        memset(sheet, 0, sizeof(*sheet));
+
+        if (!copy_toml_key(sheet->key, sizeof(sheet->key), sheets_table.u.tab.key[sheet_index], sheets_table.u.tab.len[sheet_index])) {
+            log_err("Animated sprite config '%s' has sheet key that is too long", state->resolved_anim_path);
+            goto cleanup;
+        }
+
+        if (snprintf(sheet->texture_path, sizeof(sheet->texture_path), "%s", texture_path.u.s) >= (int)sizeof(sheet->texture_path)) {
+            log_err("Animated sprite config '%s' has sheet path that is too long", state->resolved_anim_path);
+            goto cleanup;
+        }
+
+        if (join_path(runtime_state.project_root, sheet->texture_path, sheet->resolved_texture_path, sizeof(sheet->resolved_texture_path)) != Ok) {
+            log_err("Failed to resolve animated sprite sheet path '%s'", sheet->texture_path);
+            goto cleanup;
+        }
+
+        state->sheet_count++;
+    }
+
+    for (int top_level_index = 0; top_level_index < animation_toml.toptab.u.tab.size; ++top_level_index) {
+        toml_datum_t value = animation_toml.toptab.u.tab.value[top_level_index];
+        if (value.type != TOML_TABLE)
+            continue;
+
+        const char *key = animation_toml.toptab.u.tab.key[top_level_index];
+        int key_length = animation_toml.toptab.u.tab.len[top_level_index];
+        if ((key_length == 9 && strncmp(key, "Animation", 9) == 0) || (key_length == 6 && strncmp(key, "Sheets", 6) == 0))
+            continue;
+
+        if (state->state_count >= AnimatedSpriteMaxStates) {
+            log_err("Animated sprite config '%s' exceeded max state count (%d)", state->resolved_anim_path, AnimatedSpriteMaxStates);
+            goto cleanup;
+        }
+
+        AnimatedSpriteStateDef *state_definition = &state->states[state->state_count];
+        memset(state_definition, 0, sizeof(*state_definition));
+
+        if (!copy_toml_key(state_definition->name, sizeof(state_definition->name), key, key_length)) {
+            log_err("Animated sprite config '%s' has state name that is too long", state->resolved_anim_path);
+            goto cleanup;
+        }
+
+        toml_datum_t state_sheet = toml_get(value, "sheet");
+        if (state_sheet.type != TOML_STRING || !state_sheet.u.s || state_sheet.u.s[0] == '\0') {
+            log_err("Animated sprite state '%s' is missing a valid sheet reference", state_definition->name);
+            goto cleanup;
+        }
+
+        state_definition->sheet_index = animated_sprite_find_sheet_index(state, state_sheet.u.s);
+        if (state_definition->sheet_index < 0) {
+            log_err("Animated sprite state '%s' references unknown sheet '%s'", state_definition->name, state_sheet.u.s);
+            goto cleanup;
+        }
+
+        state_definition->fps = 8.0f;
+        state_definition->loop = True;
+        state_definition->frame_start = state->frame_count;
+        state_definition->transition_start = state->transition_count;
+
+        toml_datum_t fps_value = toml_get(value, "fps");
+        float parsed_fps = 0.0f;
+        if (toml_number_to_float(fps_value, &parsed_fps) && parsed_fps > 0.0f)
+            state_definition->fps = parsed_fps;
+
+        toml_datum_t loop_value = toml_get(value, "loop");
+        if (loop_value.type == TOML_BOOLEAN)
+            state_definition->loop = loop_value.u.boolean ? True : False;
+
+        toml_datum_t frames = toml_get(value, "frames");
+        if (frames.type != TOML_ARRAY || frames.u.arr.size <= 0) {
+            log_err("Animated sprite state '%s' must define frames", state_definition->name);
+            goto cleanup;
+        }
+
+        for (int frame_index = 0; frame_index < frames.u.arr.size; ++frame_index) {
+            if (state->frame_count >= AnimatedSpriteMaxFrames) {
+                log_err("Animated sprite config '%s' exceeded max frame count (%d)", state->resolved_anim_path, AnimatedSpriteMaxFrames);
+                goto cleanup;
+            }
+
+            toml_datum_t frame = frames.u.arr.elem[frame_index];
+            if (frame.type != TOML_ARRAY || frame.u.arr.size < 4) {
+                log_err("Animated sprite state '%s' frame %d must be [x, y, w, h, optional_duration]", state_definition->name, frame_index);
+                goto cleanup;
+            }
+
+            float frame_numbers[5] = {0.0f};
+            for (int value_index = 0; value_index < frame.u.arr.size && value_index < 5; ++value_index) {
+                if (!toml_number_to_float(frame.u.arr.elem[value_index], &frame_numbers[value_index])) {
+                    log_err("Animated sprite state '%s' frame %d contains non-numeric values", state_definition->name, frame_index);
+                    goto cleanup;
+                }
+            }
+
+            AnimatedSpriteFrame *destination_frame = &state->frames[state->frame_count++];
+            destination_frame->source = (Rectangle){
+                frame_numbers[0],
+                frame_numbers[1],
+                frame_numbers[2],
+                frame_numbers[3],
+            };
+            destination_frame->duration = 0.0f;
+
+            if (frame.u.arr.size >= 5) {
+                if (frame_numbers[4] <= 0.0f) {
+                    log_err("Animated sprite state '%s' frame %d has invalid duration", state_definition->name, frame_index);
+                    goto cleanup;
+                }
+                destination_frame->duration = frame_numbers[4];
+            }
+        }
+
+        state_definition->frame_count = state->frame_count - state_definition->frame_start;
+
+        toml_datum_t plugs = toml_get(value, "plug");
+        if (plugs.type == TOML_TABLE) {
+            for (int transition_index = 0; transition_index < plugs.u.tab.size; ++transition_index) {
+                if (state->transition_count >= AnimatedSpriteMaxTransitions) {
+                    log_err("Animated sprite config '%s' exceeded max transition count (%d)", state->resolved_anim_path, AnimatedSpriteMaxTransitions);
+                    goto cleanup;
+                }
+
+                toml_datum_t transition_table = plugs.u.tab.value[transition_index];
+                if (transition_table.type != TOML_TABLE) {
+                    log_err("Animated sprite state '%s' plug transitions must be tables", state_definition->name);
+                    goto cleanup;
+                }
+
+                AnimatedSpriteTransition *transition = &state->transitions[state->transition_count++];
+                memset(transition, 0, sizeof(*transition));
+
+                if (!copy_toml_key(transition->target_state_name, sizeof(transition->target_state_name), plugs.u.tab.key[transition_index], plugs.u.tab.len[transition_index])) {
+                    log_err("Animated sprite transition target name is too long in state '%s'", state_definition->name);
+                    goto cleanup;
+                }
+
+                transition->target_state_index = -1;
+                transition->condition = AnimatedTransitionAlways;
+                transition->speed_threshold = 0.01f;
+
+                toml_datum_t condition = toml_get(transition_table, "condition");
+                if (condition.type == TOML_STRING && condition.u.s && condition.u.s[0] != '\0')
+                    transition->condition = animated_transition_condition_from_string(condition.u.s);
+
+                toml_datum_t threshold = toml_get(transition_table, "speed_threshold");
+                float threshold_value = 0.0f;
+                if (toml_number_to_float(threshold, &threshold_value) && threshold_value >= 0.0f)
+                    transition->speed_threshold = threshold_value;
+            }
+        }
+
+        state_definition->transition_count = state->transition_count - state_definition->transition_start;
+        state->state_count++;
+    }
+
+    if (state->state_count <= 0) {
+        log_err("Animated sprite config '%s' must define at least one state table", state->resolved_anim_path);
+        goto cleanup;
+    }
+
+    for (int transition_index = 0; transition_index < state->transition_count; ++transition_index) {
+        AnimatedSpriteTransition *transition = &state->transitions[transition_index];
+        transition->target_state_index = animated_sprite_find_state_index(state, transition->target_state_name);
+        if (transition->target_state_index < 0) {
+            log_err("Animated sprite transition references unknown state '%s'", transition->target_state_name);
+            goto cleanup;
+        }
+    }
+
+    state->current_state_index = animated_sprite_find_state_index(state, default_state_name.u.s);
+    if (state->current_state_index < 0) {
+        log_err("Animated sprite default state '%s' was not found", default_state_name.u.s);
+        goto cleanup;
+    }
+
+    state->current_frame_offset = 0;
+    state->frame_timer = 0.0f;
+    state->has_previous_actor_position = False;
+    state->valid = True;
+
+    parse_result = Ok;
+
+cleanup:
+    toml_free(animation_toml);
+    return parse_result;
+}
+
+static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time) {
+    if (!state || !state->valid)
+        return;
+
+    const AnimatedSpriteStateDef *state_definition = animated_sprite_current_state(state);
+    if (!state_definition)
+        return;
+
+    float movement_speed = 0.0f;
+    if (state->actor) {
+        const ActorVector3 current_position = state->actor->transform.position;
+        if (state->has_previous_actor_position && delta_time > 0.0001f) {
+            const float delta_x = current_position.x - state->previous_actor_position.x;
+            const float delta_y = current_position.y - state->previous_actor_position.y;
+            const float delta_z = current_position.z - state->previous_actor_position.z;
+            movement_speed = sqrtf((delta_x * delta_x) + (delta_y * delta_y) + (delta_z * delta_z)) / delta_time;
+        }
+
+        state->previous_actor_position = current_position;
+        state->has_previous_actor_position = True;
+    }
+
+    if (state_definition->transition_count > 0) {
+        for (int transition_offset = 0; transition_offset < state_definition->transition_count; ++transition_offset) {
+            const int transition_index = state_definition->transition_start + transition_offset;
+            if (transition_index < 0 || transition_index >= state->transition_count)
+                continue;
+
+            const AnimatedSpriteTransition *transition = &state->transitions[transition_index];
+            if (!animated_transition_is_triggered(transition, movement_speed))
+                continue;
+
+            if (transition->target_state_index < 0 || transition->target_state_index >= state->state_count)
+                continue;
+
+            if (transition->target_state_index != state->current_state_index) {
+                state->current_state_index = transition->target_state_index;
+                state->current_frame_offset = 0;
+                state->frame_timer = 0.0f;
+            }
+
+            state_definition = animated_sprite_current_state(state);
+            if (!state_definition)
+                return;
+
+            break;
+        }
+    }
+
+    if (state_definition->frame_count <= 1)
+        return;
+
+    const int frame_index = state_definition->frame_start + state->current_frame_offset;
+    if (frame_index < 0 || frame_index >= state->frame_count)
+        return;
+
+    const AnimatedSpriteFrame *frame = &state->frames[frame_index];
+    const float frame_duration = frame->duration > 0.0f ? frame->duration : (1.0f / state_definition->fps);
+
+    state->frame_timer += delta_time;
+    while (state->frame_timer >= frame_duration) {
+        state->frame_timer -= frame_duration;
+        state->current_frame_offset++;
+
+        if (state->current_frame_offset >= state_definition->frame_count) {
+            if (state_definition->loop)
+                state->current_frame_offset = 0;
+            else
+                state->current_frame_offset = state_definition->frame_count - 1;
+        }
+    }
+}
+
+static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor) {
+    if (!state || !state->valid)
+        return;
+
+    const AnimatedSpriteStateDef *state_definition = animated_sprite_current_state(state);
+    const AnimatedSpriteFrame *frame = animated_sprite_current_frame(state);
+    if (!state_definition || !frame)
+        return;
+
+    if (animated_sprite_ensure_sheet_loaded(state, state_definition->sheet_index) != Ok)
+        return;
+
+    const AnimatedSpriteSheet *sheet = &state->sheets[state_definition->sheet_index];
+
+    float actor_x = 0.0f;
+    float actor_y = 0.0f;
+    float actor_scale_x = 1.0f;
+    float actor_scale_y = 1.0f;
+    if (state->actor) {
+        actor_x = state->actor->transform.position.x;
+        actor_y = state->actor->transform.position.y;
+        actor_scale_x = state->actor->transform.scale.x;
+        actor_scale_y = state->actor->transform.scale.y;
+    }
+
+    float destination_x = actor_x + state->position.x;
+    float destination_y = actor_y + state->position.y;
+    float destination_width = frame->source.width * state->scale * actor_scale_x;
+    float destination_height = frame->source.height * state->scale * actor_scale_y;
+
+    if (active_camera && active_camera_actor) {
+        float zoom = 1.0f;
+        if (active_camera->camera.fovy > 0.001f)
+            zoom = 60.0f / active_camera->camera.fovy;
+
+        const float camera_x = active_camera_actor->transform.position.x;
+        const float camera_y = active_camera_actor->transform.position.y;
+
+        destination_x = (destination_x - camera_x) * zoom + ((float)GetScreenWidth() * 0.5f);
+        destination_y = (destination_y - camera_y) * zoom + ((float)GetScreenHeight() * 0.5f);
+        destination_width *= zoom;
+        destination_height *= zoom;
+    }
+
+    Rectangle destination = {
+        destination_x,
+        destination_y,
+        destination_width,
+        destination_height,
+    };
+
+    Vector2 anchor = {
+        state->anchor.offset.x * state->scale * actor_scale_x,
+        state->anchor.offset.y * state->scale * actor_scale_y,
+    };
+
+    if (state->anchor.center) {
+        anchor.x = destination.width * 0.5f;
+        anchor.y = destination.height * 0.5f;
+    }
+
+    DrawTexturePro(sheet->texture, frame->source, destination, anchor, state->rotation, state->tint);
+}
+
+static void animated_sprite_component_dispose(AnimatedSpriteState *state) {
+    if (!state)
+        return;
+
+    for (int sheet_index = 0; sheet_index < state->sheet_count; ++sheet_index) {
+        AnimatedSpriteSheet *sheet = &state->sheets[sheet_index];
+        if (sheet->loaded) {
+            UnloadTexture(sheet->texture);
+            sheet->loaded = False;
+        }
+
+        sheet->attempted_load = False;
+    }
+
+    state->valid = False;
 
     if (state->heap.pointer)
         deallocate(state->heap);
@@ -617,6 +1156,7 @@ static void frame_update(void) {
     process_pending_scene_load();
 
     script_runtime_begin_frame(&runtime_state.script_runtime);
+    const float delta_time = GetFrameTime();
 
     if (runtime_state.dj_enabled)
         update_dj(&runtime_state.dj);
@@ -630,6 +1170,9 @@ static void frame_update(void) {
             ActorComponent *component = &actor->components[component_index];
             if (component->descriptor.kind == ComponentScript)
                 script_component_update(actor, component, &runtime_state.script_runtime);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
+                animated_sprite_component_update((AnimatedSpriteState *)component->data, delta_time);
         }
     }
 
@@ -691,6 +1234,9 @@ static void frame_update(void) {
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
                 static_sprite_component_draw((StaticSpriteState *)component->data, runtime_state.active_camera, runtime_state.active_camera_actor);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
+                animated_sprite_component_draw((AnimatedSpriteState *)component->data, runtime_state.active_camera, runtime_state.active_camera_actor);
         }
     }
 
@@ -711,6 +1257,9 @@ static void dispose_runtime_components(void) {
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
                 static_sprite_component_dispose((StaticSpriteState *)component->data);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
+                animated_sprite_component_dispose((AnimatedSpriteState *)component->data);
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Camera") == 0)
                 camera_component_dispose((CameraComponentData *)component->data);
@@ -956,6 +1505,86 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         if (actor_add_component(actor, descriptor, camera_state) != Ok) {
             camera_component_dispose(camera_state);
             log_err("Failed to add camera component to actor '%s'", actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t animated_sprite_table = {0};
+    if (find_animated_sprite_component_table(actor_table, &animated_sprite_table)) {
+        toml_datum_t anim = toml_get(animated_sprite_table, "anim");
+        if (anim.type != TOML_STRING || !anim.u.s || anim.u.s[0] == '\0') {
+            log_err("Actor '%s' has AnimatedSprite component without a valid anim path", actor_id);
+            return Err;
+        }
+
+        Heap animated_sprite_heap = allocate(1, sizeof(AnimatedSpriteState));
+        AnimatedSpriteState *animated_sprite_state = (AnimatedSpriteState *)animated_sprite_heap.pointer;
+        if (!animated_sprite_state) {
+            log_err("Failed to allocate animated sprite state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(animated_sprite_state, 0, sizeof(*animated_sprite_state));
+        animated_sprite_state->heap = animated_sprite_heap;
+        animated_sprite_state->actor = actor;
+        animated_sprite_state->position = (Vector2){0.0f, 0.0f};
+        animated_sprite_state->anchor = (SpriteAnchor){
+            .center = False,
+            .offset = (Vector2){0.0f, 0.0f},
+        };
+        animated_sprite_state->scale = 1.0f;
+        animated_sprite_state->rotation = 0.0f;
+        animated_sprite_state->tint = WHITE;
+        animated_sprite_state->current_state_index = -1;
+
+        if (snprintf(animated_sprite_state->anim_path, sizeof(animated_sprite_state->anim_path), "%s", anim.u.s) >= (int)sizeof(animated_sprite_state->anim_path)) {
+            animated_sprite_component_dispose(animated_sprite_state);
+            log_err("Animated sprite config path is too long for actor '%s'", actor_id);
+            return Err;
+        }
+
+        toml_datum_t transform = toml_get(actor_table, "Transform");
+        (void)read_xy_array(transform, "position", &animated_sprite_state->position);
+        if (read_actor_transform_anchor(actor_table, prefab_refs, prefabs_root, &animated_sprite_state->anchor) != Ok) {
+            animated_sprite_component_dispose(animated_sprite_state);
+            log_err("Actor '%s' has invalid Transform.anchor; expected [x, y] or \"center\" (actor or prefab Transform)", actor_id);
+            return Err;
+        }
+
+        (void)read_xy_array(animated_sprite_table, "position", &animated_sprite_state->position);
+
+        toml_datum_t scale = toml_get(animated_sprite_table, "scale");
+        float scale_value = 1.0f;
+        if (toml_number_to_float(scale, &scale_value) && scale_value > 0.0f)
+            animated_sprite_state->scale = scale_value;
+
+        toml_datum_t rotation = toml_get(animated_sprite_table, "rotation");
+        float rotation_value = 0.0f;
+        if (toml_number_to_float(rotation, &rotation_value))
+            animated_sprite_state->rotation = rotation_value;
+
+        toml_datum_t tint = toml_get(animated_sprite_table, "tint");
+        if (tint.type == TOML_ARRAY && tint.u.arr.size >= 4 &&
+            tint.u.arr.elem[0].type == TOML_INT64 && tint.u.arr.elem[1].type == TOML_INT64 &&
+            tint.u.arr.elem[2].type == TOML_INT64 && tint.u.arr.elem[3].type == TOML_INT64) {
+            animated_sprite_state->tint = (Color){
+                (unsigned char)tint.u.arr.elem[0].u.int64,
+                (unsigned char)tint.u.arr.elem[1].u.int64,
+                (unsigned char)tint.u.arr.elem[2].u.int64,
+                (unsigned char)tint.u.arr.elem[3].u.int64,
+            };
+        }
+
+        ComponentDescriptor descriptor = {
+            .name = "AnimatedSprite",
+            .kind = ComponentBuiltin,
+            .initialize = animated_sprite_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, animated_sprite_state) != Ok) {
+            animated_sprite_component_dispose(animated_sprite_state);
+            log_err("Failed to add animated sprite component to actor '%s'", actor_id);
             return Err;
         }
     }

@@ -43,6 +43,11 @@ Actors are Unity-style GameObjects:
 - Components can be `builtin`, `script`, or `custom` kinds.
 - Component names map to runtime component constructors/handlers.
 - Builtin `StaticSprite` renders a texture every frame without animation (keys: `texture`, optional `position`, `scale`, `rotation`, `tint`); when present, `Transform.anchor` controls sprite draw origin.
+- Builtin `AnimatedSprite` renders a TOML-driven animation graph (keys: `anim`, optional `position`, `scale`, `rotation`, `tint`). Animation file format:
+   - `[Animation]` with `default = "StateName"`
+   - `[Sheets]` key/value map of `sheet_key = "texture/path.png"`
+   - Per-state tables (`[Idle]`, `[Walk]`, etc.) with `sheet`, optional `fps`, optional `loop`, and `frames = [[x, y, w, h], ...]` (or `[[x, y, w, h, duration], ...]`)
+   - Optional transition graph under `[State.plug]`, e.g. `[Idle.plug.Walk] condition = "moving"` or `[Walk.plug.Idle] condition = "not_moving"`; optional `speed_threshold` (default `0.01`).
 
 ### Identity and Validation
 

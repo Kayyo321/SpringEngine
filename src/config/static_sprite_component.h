@@ -10,6 +10,79 @@ typedef struct {
     Vector2 offset;
 } SpriteAnchor;
 
+enum {
+    AnimatedSpriteMaxSheets = 16,
+    AnimatedSpriteMaxStates = 32,
+    AnimatedSpriteMaxFrames = 256,
+    AnimatedSpriteMaxTransitions = 128,
+    AnimatedSpriteMaxStateName = 64,
+    AnimatedSpriteMaxSheetKey = 64,
+};
+
+typedef enum {
+    AnimatedTransitionAlways,
+    AnimatedTransitionMoving,
+    AnimatedTransitionNotMoving,
+} AnimatedTransitionCondition;
+
+typedef struct {
+    Rectangle source;
+    float duration;
+} AnimatedSpriteFrame;
+
+typedef struct {
+    char target_state_name[AnimatedSpriteMaxStateName];
+    int target_state_index;
+    AnimatedTransitionCondition condition;
+    float speed_threshold;
+} AnimatedSpriteTransition;
+
+typedef struct {
+    char key[AnimatedSpriteMaxSheetKey];
+    char texture_path[4096];
+    char resolved_texture_path[4096];
+    Texture2D texture;
+    boolean loaded;
+    boolean attempted_load;
+} AnimatedSpriteSheet;
+
+typedef struct {
+    char name[AnimatedSpriteMaxStateName];
+    int sheet_index;
+    float fps;
+    boolean loop;
+    int frame_start;
+    int frame_count;
+    int transition_start;
+    int transition_count;
+} AnimatedSpriteStateDef;
+
+typedef struct {
+    char anim_path[4096];
+    char resolved_anim_path[4096];
+    Actor *actor;
+    Vector2 position;
+    SpriteAnchor anchor;
+    float scale;
+    float rotation;
+    Color tint;
+    AnimatedSpriteSheet sheets[AnimatedSpriteMaxSheets];
+    int sheet_count;
+    AnimatedSpriteStateDef states[AnimatedSpriteMaxStates];
+    int state_count;
+    AnimatedSpriteFrame frames[AnimatedSpriteMaxFrames];
+    int frame_count;
+    AnimatedSpriteTransition transitions[AnimatedSpriteMaxTransitions];
+    int transition_count;
+    int current_state_index;
+    int current_frame_offset;
+    float frame_timer;
+    ActorVector3 previous_actor_position;
+    boolean has_previous_actor_position;
+    boolean valid;
+    Heap heap;
+} AnimatedSpriteState;
+
 typedef struct {
     char texture_path[4096];
     char resolved_texture_path[4096];
