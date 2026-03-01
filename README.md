@@ -124,6 +124,7 @@ For practical verification, run `make test` and inspect `logs/log0-last.log` for
 ## Config-First Roadmap
 
 - See `docs/config-system-vision.md` for the full `.conf`-driven architecture (project config, scenes, actor data, prefabs, and persistence model).
+- See `docs/ui-system-vision.md` for a matching config-driven UI architecture (themes, documents, widget trees, bindings, and runtime lifecycle).
 
 ## tomlc17 Setup
 
