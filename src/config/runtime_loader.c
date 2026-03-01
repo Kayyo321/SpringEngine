@@ -1,7 +1,9 @@
 #include "runtime_loader.h"
+#include "runtime_loader_internal.h"
 
 #include "actor/actor.h"
 #include "actor/camera_component.h"
+#include "actor/collider_component.h"
 #include "config/static_sprite_component.h"
 #include "dj/dj.h"
 #include "project_config.h"
@@ -19,73 +21,31 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#ifndef PATH_MAX
-#define PATH_MAX 4096
-#endif
-
-enum {
-    RuntimeMaxAutoloadActors = 128,
-    RuntimeMaxAutoloadActorIdLength = 128,
-    RuntimeMaxPendingPrefabInstantiations = 256,
-    RuntimeMaxRuntimeActorIdLength = 128,
-};
-
-typedef struct {
-    char actor_id[RuntimeMaxRuntimeActorIdLength];
-    char prefab_ref_id[RuntimeMaxRuntimeActorIdLength];
-    boolean has_position;
-    ActorTransform transform;
-} PendingPrefabInstantiation;
-
-typedef struct {
-    ActorRegistry actor_registry;
-    DJ dj;
-    ScriptRuntime script_runtime;
-    CameraComponentData *active_camera;
-    Actor *active_camera_actor;
-    boolean dj_enabled;
-    boolean active;
-    boolean has_pending_scene_load;
-    usize autoload_actor_count;
-    usize pending_prefab_instantiation_count;
-    usize prefab_copy_counter;
-    char project_root[PATH_MAX];
-    char scenes_root[PATH_MAX];
-    char prefabs_root[PATH_MAX];
-    char ui_root[PATH_MAX];
-    char autoload_data_path[PATH_MAX];
-    char current_scene_path[PATH_MAX];
-    char pending_scene_path[PATH_MAX];
-    char autoload_actor_ids[RuntimeMaxAutoloadActors][RuntimeMaxAutoloadActorIdLength];
-    PendingPrefabInstantiation pending_prefab_instantiations[RuntimeMaxPendingPrefabInstantiations];
-    UiRuntime *ui_runtime;
-} RuntimeState;
-
-static RuntimeState runtime_state;
-
 static result join_path(const char *base, const char *path, char *out_path, usize out_size);
 static result parent_directory(const char *path, char *out_dir, usize out_size);
 static result parse_toml_file(const char *path, toml_result_t *out_parsed);
 static result load_autoload_actors(toml_datum_t autoload_toptab);
 static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab, const char *prefabs_root);
 static result instantiate_actor_from_table(const char *actor_id, toml_datum_t actor_table, toml_datum_t prefab_refs, const char *prefabs_root, const char *success_log_label);
-static Actor *find_actor_by_id(const char *actor_id);
+Actor *find_actor_by_id(const char *actor_id);
 static void refresh_component_actor_backrefs(void);
 static void dispose_actor_components(Actor *actor);
 static void destroy_actor_at_index(usize actor_index);
 static void process_pending_actor_destroys(void);
 static result process_pending_prefab_instantiations(void);
-static result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size);
+result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size);
 static result resolve_prefab_path_from_ref(const char *prefab_ref_id, char *out_prefab_path, usize out_prefab_path_size);
 static result load_scene_runtime(const char *scene_path);
 static void process_pending_scene_load(void);
 static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t actor_table, toml_datum_t *out_animated_sprite_table);
 static result animated_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context);
+static result collider_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
 static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor);
 static void animated_sprite_component_dispose(AnimatedSpriteState *state);
 static void static_sprite_component_dispose(StaticSpriteState *state);
 static void camera_component_dispose(CameraComponentData *state);
+static void collider_component_dispose(ColliderComponentData *state);
 
 static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     if (!out_number)
@@ -104,7 +64,7 @@ static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     return False;
 }
 
-static Actor *find_actor_by_id(const char *actor_id) {
+Actor *find_actor_by_id(const char *actor_id) {
     if (!actor_id || actor_id[0] == '\0')
         return Null;
 
@@ -159,6 +119,9 @@ static void dispose_actor_components(Actor *actor) {
 
         if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Camera") == 0)
             camera_component_dispose((CameraComponentData *)component->data);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Collider") == 0)
+            collider_component_dispose((ColliderComponentData *)component->data);
     }
 }
 
@@ -233,7 +196,7 @@ static result resolve_prefab_path_from_ref(const char *prefab_ref_id, char *out_
     return access(out_prefab_path, F_OK) == 0 ? Ok : Err;
 }
 
-static result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size) {
+result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size) {
     if (!prefab_ref_id || prefab_ref_id[0] == '\0')
         return Err;
 
@@ -580,7 +543,25 @@ static result camera_component_initialize(Actor *actor, ActorComponent *componen
     return Ok;
 }
 
+static result collider_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)actor;
+    (void)context;
+
+    if (!component || !component->data)
+        return Err;
+
+    return Ok;
+}
+
 static void camera_component_dispose(CameraComponentData *state) {
+    if (!state)
+        return;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
+
+static void collider_component_dispose(ColliderComponentData *state) {
     if (!state)
         return;
 
@@ -1524,9 +1505,276 @@ static result validate_conf_files(const char *directory_path, usize *out_conf_co
     return Ok;
 }
 
+#ifdef SPRINGENGINE_DEBUG
+static boolean debug_collider_toggle_pressed(void) {
+    return IsKeyPressed(KEY_ONE) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
+}
+
+static boolean debug_is_shift_down(void) {
+    return IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+}
+
+static float debug_collider_edit_step(void) {
+    if (IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL))
+        return 8.0f;
+
+    return 1.0f;
+}
+
+static boolean debug_get_visible_collider_at(usize target_index, Actor **out_actor, ColliderComponentData **out_collider, usize *out_count) {
+    if (out_actor)
+        *out_actor = Null;
+    if (out_collider)
+        *out_collider = Null;
+
+    usize visible_index = 0;
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->enabled)
+            continue;
+
+        ColliderComponentData *collider = actor_find_collider_component(actor);
+        if (!collider || !collider->enabled)
+            continue;
+
+        if (visible_index == target_index) {
+            if (out_actor)
+                *out_actor = actor;
+            if (out_collider)
+                *out_collider = collider;
+        }
+
+        ++visible_index;
+    }
+
+    if (out_count)
+        *out_count = visible_index;
+
+    return (out_actor && out_collider && *out_actor && *out_collider) ? True : False;
+}
+
+static void debug_log_selected_collider(usize collider_index, const Actor *actor, const ColliderComponentData *collider) {
+    if (!actor || !collider)
+        return;
+
+    const char *actor_id = actor->id ? actor->id : "<unknown>";
+    log_msg(
+        "Debug collider[%zu] actor=%s offset=(%.1f, %.1f) size=(%.1f, %.1f)",
+        collider_index,
+        actor_id,
+        collider->offset.x,
+        collider->offset.y,
+        collider->size.x,
+        collider->size.y
+    );
+}
+
+static void debug_copy_selected_collider_to_clipboard(usize collider_index, const Actor *actor, const ColliderComponentData *collider) {
+    if (!actor || !collider)
+        return;
+
+    const char *actor_id = actor->id ? actor->id : "<unknown>";
+    char clipboard_text[512] = {0};
+    const int written = snprintf(
+        clipboard_text,
+        sizeof(clipboard_text),
+        "# Collider debug export for actor '%s' (index %zu)\n"
+        "offset = [%.1f, %.1f]\n"
+        "size = [%.1f, %.1f]\n"
+        "enabled = %s\n"
+        "is_trigger = %s\n",
+        actor_id,
+        collider_index,
+        collider->offset.x,
+        collider->offset.y,
+        collider->size.x,
+        collider->size.y,
+        collider->enabled ? "true" : "false",
+        collider->is_trigger ? "true" : "false"
+    );
+
+    if (written < 0 || written >= (int)sizeof(clipboard_text)) {
+        log_err("Failed to export collider values to clipboard: output too long");
+        return;
+    }
+
+    SetClipboardText(clipboard_text);
+    log_msg("Copied collider[%zu] for actor '%s' to clipboard", collider_index, actor_id);
+}
+
+static void debug_update_collider_editor(void) {
+    if (!runtime_state.debug_show_collider_borders)
+        return;
+
+    usize collider_count = 0;
+    (void)debug_get_visible_collider_at(0, Null, Null, &collider_count);
+    if (collider_count == 0)
+        return;
+
+    if (runtime_state.debug_selected_collider_index >= collider_count)
+        runtime_state.debug_selected_collider_index = 0;
+
+    if (IsKeyPressed(KEY_K))
+        runtime_state.debug_selected_collider_index = (runtime_state.debug_selected_collider_index + 1) % collider_count;
+
+    if (IsKeyPressed(KEY_J))
+        runtime_state.debug_selected_collider_index = (runtime_state.debug_selected_collider_index + collider_count - 1) % collider_count;
+
+    Actor *selected_actor = Null;
+    ColliderComponentData *selected_collider = Null;
+    if (!debug_get_visible_collider_at(runtime_state.debug_selected_collider_index, &selected_actor, &selected_collider, Null))
+        return;
+
+    const float step = debug_collider_edit_step();
+    const boolean edit_size = debug_is_shift_down();
+    boolean changed = False;
+
+    if (!edit_size) {
+        if (IsKeyPressed(KEY_LEFT)) {
+            selected_collider->offset.x -= step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_RIGHT)) {
+            selected_collider->offset.x += step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_UP)) {
+            selected_collider->offset.y -= step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_DOWN)) {
+            selected_collider->offset.y += step;
+            changed = True;
+        }
+    } else {
+        if (IsKeyPressed(KEY_LEFT)) {
+            selected_collider->size.x -= step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_RIGHT)) {
+            selected_collider->size.x += step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_UP)) {
+            selected_collider->size.y += step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_DOWN)) {
+            selected_collider->size.y -= step;
+            changed = True;
+        }
+
+        if (selected_collider->size.x < 1.0f)
+            selected_collider->size.x = 1.0f;
+        if (selected_collider->size.y < 1.0f)
+            selected_collider->size.y = 1.0f;
+    }
+
+    if (changed || IsKeyPressed(KEY_J) || IsKeyPressed(KEY_K))
+        debug_log_selected_collider(runtime_state.debug_selected_collider_index, selected_actor, selected_collider);
+
+    if (IsKeyPressed(KEY_C))
+        debug_copy_selected_collider_to_clipboard(runtime_state.debug_selected_collider_index, selected_actor, selected_collider);
+}
+
+static Rectangle normalize_rectangle(Rectangle rectangle) {
+    if (rectangle.width < 0.0f) {
+        rectangle.x += rectangle.width;
+        rectangle.width = -rectangle.width;
+    }
+
+    if (rectangle.height < 0.0f) {
+        rectangle.y += rectangle.height;
+        rectangle.height = -rectangle.height;
+    }
+
+    return rectangle;
+}
+
+static Rectangle project_world_rectangle(Rectangle world_bounds, CameraComponentData *active_camera, Actor *active_camera_actor) {
+    if (!active_camera || !active_camera_actor)
+        return world_bounds;
+
+    float zoom = 1.0f;
+    if (active_camera->camera.fovy > 0.001f)
+        zoom = 60.0f / active_camera->camera.fovy;
+
+    const float camera_x = active_camera_actor->transform.position.x;
+    const float camera_y = active_camera_actor->transform.position.y;
+
+    Rectangle projected = {
+        .x = (world_bounds.x - camera_x) * zoom + ((float)GetScreenWidth() * 0.5f),
+        .y = (world_bounds.y - camera_y) * zoom + ((float)GetScreenHeight() * 0.5f),
+        .width = world_bounds.width * zoom,
+        .height = world_bounds.height * zoom,
+    };
+
+    return projected;
+}
+
+static void debug_draw_collider_borders(void) {
+    usize visible_index = 0;
+    usize collider_count = 0;
+    (void)debug_get_visible_collider_at(0, Null, Null, &collider_count);
+
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->enabled)
+            continue;
+
+        ColliderComponentData *collider = actor_find_collider_component(actor);
+        if (!collider || !collider->enabled)
+            continue;
+
+        Rectangle collider_bounds = collider_world_bounds(actor, collider);
+        collider_bounds = project_world_rectangle(collider_bounds, runtime_state.active_camera, runtime_state.active_camera_actor);
+        collider_bounds = normalize_rectangle(collider_bounds);
+
+        const boolean selected = (visible_index == runtime_state.debug_selected_collider_index);
+        const Color border_color = selected ? YELLOW : (collider->is_trigger ? ORANGE : LIME);
+        DrawRectangleLinesEx(collider_bounds, selected ? 2.0f : 1.0f, border_color);
+
+        if (actor->id && actor->id[0] != '\0')
+            DrawText(actor->id, (int)collider_bounds.x, (int)(collider_bounds.y - 14.0f), 10, border_color);
+
+        ++visible_index;
+    }
+
+    if (collider_count > 0) {
+        char hud_line[256] = {0};
+        (void)snprintf(
+            hud_line,
+            sizeof(hud_line),
+            "Collider Debug: J/K select (%zu/%zu) | Arrows: offset | Shift+Arrows: size | Ctrl: step x8 | C: copy current offset/size to clipboard",
+            runtime_state.debug_selected_collider_index + 1,
+            collider_count
+        );
+
+        const int footer_height = 18;
+        int footer_y = GetScreenHeight() - footer_height;
+        if (footer_y < 0)
+            footer_y = 0;
+
+        DrawRectangle(0, footer_y, GetScreenWidth(), footer_height, Fade(BLACK, 0.55f));
+
+        DrawText(hud_line, 10, footer_y, 12, WHITE);
+    }
+}
+#endif
+
 static void frame_update(void) {
     if (!runtime_state.active)
         return;
+
+#ifdef SPRINGENGINE_DEBUG
+    if (debug_collider_toggle_pressed()) {
+        runtime_state.debug_show_collider_borders = !runtime_state.debug_show_collider_borders;
+        log_msg("Debug collider borders: %s", runtime_state.debug_show_collider_borders ? "ON" : "OFF");
+    }
+
+    if (runtime_state.debug_show_collider_borders)
+        debug_update_collider_editor();
+#endif
 
     process_pending_scene_load();
     (void)process_pending_prefab_instantiations();
@@ -1622,6 +1870,11 @@ static void frame_update(void) {
         }
     }
 
+#ifdef SPRINGENGINE_DEBUG
+    if (runtime_state.debug_show_collider_borders)
+        debug_draw_collider_borders();
+#endif
+
     if (runtime_state.ui_runtime)
         ui_runtime_draw(runtime_state.ui_runtime);
 
@@ -1645,6 +1898,9 @@ static void dispose_runtime_components(void) {
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Camera") == 0)
                 camera_component_dispose((CameraComponentData *)component->data);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Collider") == 0)
+                collider_component_dispose((ColliderComponentData *)component->data);
         }
     }
 }
@@ -1691,6 +1947,37 @@ static const toml_datum_t *find_camera_component_table(toml_datum_t actor_table,
         if (camera.type == TOML_TABLE) {
             *out_camera_table = camera;
             return out_camera_table;
+        }
+    }
+
+    return Null;
+}
+
+static const toml_datum_t *find_collider_component_table(toml_datum_t actor_table, toml_datum_t *out_collider_table) {
+    if (out_collider_table)
+        *out_collider_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE || !out_collider_table)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t collider = toml_get(components, "Collider");
+            if (collider.type == TOML_TABLE) {
+                *out_collider_table = collider;
+                return out_collider_table;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t collider = toml_get(components, "Collider");
+        if (collider.type == TOML_TABLE) {
+            *out_collider_table = collider;
+            return out_collider_table;
         }
     }
 
@@ -1896,6 +2183,68 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         if (actor_add_component(actor, descriptor, camera_state) != Ok) {
             camera_component_dispose(camera_state);
             log_err("Failed to add camera component to actor '%s'", actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t collider_component_table = {0};
+    if (find_collider_component_table(actor_table, &collider_component_table)) {
+        Heap collider_heap = allocate(1, sizeof(ColliderComponentData));
+        ColliderComponentData *collider_state = (ColliderComponentData *)collider_heap.pointer;
+        if (!collider_state) {
+            log_err("Failed to allocate collider state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(collider_state, 0, sizeof(*collider_state));
+        collider_state->heap = collider_heap;
+        collider_state->offset = (Vector2){0.0f, 0.0f};
+        collider_state->size = (Vector2){16.0f, 16.0f};
+        collider_state->enabled = True;
+        collider_state->is_trigger = False;
+
+        toml_datum_t offset = toml_get(collider_component_table, "offset");
+        if (offset.type != TOML_UNKNOWN && read_xy_array(collider_component_table, "offset", &collider_state->offset) != Ok) {
+            collider_component_dispose(collider_state);
+            log_err("Actor '%s' has invalid Collider.offset; expected [x, y]", actor_id);
+            return Err;
+        }
+
+        toml_datum_t size = toml_get(collider_component_table, "size");
+        if (size.type != TOML_UNKNOWN && read_xy_array(collider_component_table, "size", &collider_state->size) != Ok) {
+            collider_component_dispose(collider_state);
+            log_err("Actor '%s' has invalid Collider.size; expected [width, height]", actor_id);
+            return Err;
+        }
+
+        if (collider_state->size.x <= 0.0f || collider_state->size.y <= 0.0f) {
+            collider_component_dispose(collider_state);
+            log_err("Actor '%s' has invalid Collider.size; width and height must be > 0", actor_id);
+            return Err;
+        }
+
+        toml_datum_t enabled = toml_get(collider_component_table, "enabled");
+        if (enabled.type == TOML_BOOLEAN)
+            collider_state->enabled = enabled.u.boolean ? True : False;
+
+        toml_datum_t is_trigger = toml_get(collider_component_table, "is_trigger");
+        if (is_trigger.type == TOML_BOOLEAN)
+            collider_state->is_trigger = is_trigger.u.boolean ? True : False;
+
+        toml_datum_t trigger = toml_get(collider_component_table, "trigger");
+        if (trigger.type == TOML_BOOLEAN)
+            collider_state->is_trigger = trigger.u.boolean ? True : False;
+
+        ComponentDescriptor descriptor = {
+            .name = "Collider",
+            .kind = ComponentBuiltin,
+            .initialize = collider_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, collider_state) != Ok) {
+            collider_component_dispose(collider_state);
+            log_err("Failed to add collider component to actor '%s'", actor_id);
             return Err;
         }
     }
@@ -2465,141 +2814,4 @@ fail:
         toml_free(project_toml);
 
     return Err;
-}
-
-result runtime_request_scene_load(const char *scene_path) {
-    if (!runtime_state.active || !scene_path || scene_path[0] == '\0')
-        return Err;
-
-    if (snprintf(runtime_state.pending_scene_path, sizeof(runtime_state.pending_scene_path), "%s", scene_path) >= (int)sizeof(runtime_state.pending_scene_path)) {
-        log_err("Requested scene path is too long: '%s'", scene_path);
-        return Err;
-    }
-
-    runtime_state.has_pending_scene_load = True;
-    return Ok;
-}
-
-const char *runtime_current_scene_path(void) {
-    if (!runtime_state.current_scene_path[0])
-        return Null;
-
-    return runtime_state.current_scene_path;
-}
-
-result runtime_instantiate_prefab(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size) {
-    if (!runtime_state.active)
-        return Err;
-
-    return enqueue_prefab_instantiation(prefab_ref_id, has_position, x, y, z, out_actor_id, out_actor_id_size);
-}
-
-result runtime_destroy_actor(const char *actor_id) {
-    if (!runtime_state.active || !actor_id || actor_id[0] == '\0')
-        return Err;
-
-    Actor *actor = find_actor_by_id(actor_id);
-    if (!actor)
-        return Err;
-
-    actor->pending_destroy = True;
-    return Ok;
-}
-
-result runtime_set_actor_destroy_on_load(const char *actor_id, boolean destroy_on_load) {
-    if (!runtime_state.active || !actor_id || actor_id[0] == '\0')
-        return Err;
-
-    Actor *actor = find_actor_by_id(actor_id);
-    if (!actor)
-        return Err;
-
-    actor->destroy_on_load = destroy_on_load ? True : False;
-    return Ok;
-}
-
-result runtime_get_actor_destroy_on_load(const char *actor_id, boolean *out_destroy_on_load) {
-    if (!runtime_state.active || !actor_id || actor_id[0] == '\0' || !out_destroy_on_load)
-        return Err;
-
-    Actor *actor = find_actor_by_id(actor_id);
-    if (!actor)
-        return Err;
-
-    *out_destroy_on_load = actor->destroy_on_load ? True : False;
-    return Ok;
-}
-
-result runtime_ui_node_exists(const char *document_id, const char *node_id) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id || !node_id)
-        return Err;
-
-    return ui_runtime_node_exists(runtime_state.ui_runtime, document_id, node_id);
-}
-
-result runtime_ui_set_visible(const char *document_id, const char *node_id, boolean visible) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id || !node_id)
-        return Err;
-
-    return ui_runtime_set_node_visible(runtime_state.ui_runtime, document_id, node_id, visible);
-}
-
-result runtime_ui_set_text(const char *document_id, const char *node_id, const char *text) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id || !node_id || !text)
-        return Err;
-
-    return ui_runtime_set_node_text(runtime_state.ui_runtime, document_id, node_id, text);
-}
-
-result runtime_ui_push_document(const char *document_path) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !document_path)
-        return Err;
-
-    return ui_runtime_push_document(runtime_state.ui_runtime, document_path);
-}
-
-result runtime_ui_pop_document(const char *document_id) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id)
-        return Err;
-
-    return ui_runtime_pop_document(runtime_state.ui_runtime, document_id);
-}
-
-result runtime_ui_set_document_layer(const char *document_id, int layer) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id)
-        return Err;
-
-    return ui_runtime_set_document_layer(runtime_state.ui_runtime, document_id, layer);
-}
-
-result runtime_ui_bring_document_to_front(const char *document_id) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id)
-        return Err;
-
-    return ui_runtime_bring_document_to_front(runtime_state.ui_runtime, document_id);
-}
-
-result runtime_ui_send_document_to_back(const char *document_id) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id)
-        return Err;
-
-    return ui_runtime_send_document_to_back(runtime_state.ui_runtime, document_id);
-}
-
-result runtime_ui_get_document_count(usize *out_count) {
-    if (!runtime_state.active || !runtime_state.ui_runtime || !out_count)
-        return Err;
-
-    return ui_runtime_get_document_count(runtime_state.ui_runtime, out_count);
-}
-
-const char *runtime_ui_get_document_id_at(usize index) {
-    if (!runtime_state.active || !runtime_state.ui_runtime)
-        return Null;
-
-    const char *document_id = Null;
-    if (ui_runtime_get_document_id_at(runtime_state.ui_runtime, index, &document_id) != Ok)
-        return Null;
-
-    return document_id;
 }

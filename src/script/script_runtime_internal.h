@@ -4,6 +4,7 @@
 #include "script_runtime.h"
 
 #include "actor/camera_component.h"
+#include "actor/collider_component.h"
 #include "config/runtime_loader.h"
 #include "config/static_sprite_component.h"
 #include "common.h"
@@ -39,6 +40,7 @@ int luaopen_engine_time(lua_State *lua_state);
 int luaopen_engine_transform(lua_State *lua_state);
 int luaopen_engine_actor(lua_State *lua_state);
 int luaopen_engine_camera(lua_State *lua_state);
+int luaopen_engine_collider(lua_State *lua_state);
 int luaopen_engine_scene(lua_State *lua_state);
 int luaopen_engine_dj(lua_State *lua_state);
 int luaopen_engine_ui(lua_State *lua_state);

@@ -12,9 +12,17 @@ LIBDIR := lib
 OBJDIR := obj
 BINDIR := bin
 TARGET ?= $(BINDIR)/springengine
+DEBUG_TARGET := $(BINDIR)/springengine-debug
 TEST_TARGET := $(BINDIR)/springengine-test
 
 BUILD_OBJDIR := $(OBJDIR)
+
+ifneq (,$(filter debug,$(MAKECMDGOALS)))
+CPPFLAGS += -DSPRINGENGINE_DEBUG
+CFLAGS += -O0 -g
+TARGET := $(DEBUG_TARGET)
+BUILD_OBJDIR := $(OBJDIR)/debug
+endif
 
 LUA_DIR := $(LIBDIR)/lua-5.4.6
 LUA_INCLUDE_DIR := $(LUA_DIR)/src
@@ -91,9 +99,11 @@ LDFLAGS += -framework Cocoa -framework IOKit -framework CoreVideo -framework Cor
 LDLIBS += -lm
 endif
 
-.PHONY: all clean clean-test fclean re test check-allocators prepare-lua check-raylib
+.PHONY: all debug clean clean-test fclean re test check-allocators prepare-lua check-raylib
 
 all: check-allocators prepare-lua check-raylib $(TARGET)
+
+debug: all
 
 $(TARGET): $(OBJ) $(LUA_STATIC_LIB) $(TOMLC17_STATIC_LIB) | $(BINDIR)
 	$(CC) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@
@@ -141,7 +151,7 @@ clean-test:
 	@rm -f $(TEST_TARGET)
 
 fclean: clean
-	@rm -f $(BINDIR)/$(TARGET) $(TEST_TARGET)
+	@rm -f $(BINDIR)/springengine $(DEBUG_TARGET) $(TEST_TARGET)
 
 re: fclean all
 

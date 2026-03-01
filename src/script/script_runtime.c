@@ -160,6 +160,8 @@ static result register_engine_libraries(ScriptRuntime *runtime) {
         return Err;
     if (register_preload_module(runtime->lua_state, "Engine.Camera", luaopen_engine_camera) != Ok)
         return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.Collider", luaopen_engine_collider) != Ok)
+        return Err;
     if (register_preload_module(runtime->lua_state, "Engine.Scene", luaopen_engine_scene) != Ok)
         return Err;
     if (register_preload_module(runtime->lua_state, "Engine.DJ", luaopen_engine_dj) != Ok)
@@ -299,6 +301,221 @@ static AnimatedSpriteState *find_actor_animated_sprite(Actor *actor) {
         return Null;
 
     return (AnimatedSpriteState *)component->data;
+}
+
+static ColliderComponentData *find_actor_collider(Actor *actor) {
+    ActorComponent *component = find_builtin_component(actor, "Collider");
+    if (!component)
+        return Null;
+
+    return (ColliderComponentData *)component->data;
+}
+
+static int lua_component_collider_set_offset(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->offset.x = (float)luaL_checknumber(lua_state, x_index);
+    state->offset.y = (float)luaL_checknumber(lua_state, y_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_component_collider_get_offset(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 2;
+    }
+
+    lua_pushnumber(lua_state, state->offset.x);
+    lua_pushnumber(lua_state, state->offset.y);
+    return 2;
+}
+
+static int lua_component_collider_set_size(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int width_index = using_colon_call ? 2 : 1;
+    const int height_index = using_colon_call ? 3 : 2;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float width = (float)luaL_checknumber(lua_state, width_index);
+    const float height = (float)luaL_checknumber(lua_state, height_index);
+    if (width <= 0.0f || height <= 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->size.x = width;
+    state->size.y = height;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_component_collider_get_size(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 2;
+    }
+
+    lua_pushnumber(lua_state, state->size.x);
+    lua_pushnumber(lua_state, state->size.y);
+    return 2;
+}
+
+static int lua_component_collider_set_enabled(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int enabled_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->enabled = lua_toboolean(lua_state, enabled_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_component_collider_get_enabled(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->enabled ? 1 : 0);
+    return 1;
+}
+
+static int lua_component_collider_set_is_trigger(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->is_trigger = lua_toboolean(lua_state, value_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_component_collider_get_is_trigger(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->is_trigger ? 1 : 0);
+    return 1;
+}
+
+static int lua_component_collider_get_bounds(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state || !actor) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 4;
+    }
+
+    const Rectangle bounds = collider_world_bounds(actor, state);
+    lua_pushnumber(lua_state, bounds.x);
+    lua_pushnumber(lua_state, bounds.y);
+    lua_pushnumber(lua_state, bounds.width);
+    lua_pushnumber(lua_state, bounds.height);
+    return 4;
+}
+
+static int lua_component_collider_overlaps_actor(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int target_actor_index = using_colon_call ? 2 : 1;
+    const char *target_actor_id = luaL_checkstring(lua_state, target_actor_index);
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state || !actor) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    Actor *target_actor = lua_runtime_find_actor(lua_state, target_actor_id);
+    ColliderComponentData *target_state = find_actor_collider(target_actor);
+    if (!target_state || !target_actor) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, collider_components_overlap(actor, state, target_actor, target_state) ? 1 : 0);
+    return 1;
+}
+
+static int lua_component_collider_overlaps_point(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+    if (!state || !actor) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const Rectangle bounds = collider_world_bounds(actor, state);
+    const Vector2 point = {
+        (float)luaL_checknumber(lua_state, x_index),
+        (float)luaL_checknumber(lua_state, y_index),
+    };
+
+    lua_pushboolean(lua_state, CheckCollisionPointRec(point, bounds) ? 1 : 0);
+    return 1;
 }
 
 static int lua_component_animconf_set(lua_State *lua_state) {
@@ -476,6 +693,61 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
         lua_pushcclosure(lua_state, lua_component_animconf_get_flip_x, 1);
         lua_setfield(lua_state, -2, "get_flip_x");
+
+        return 1;
+    }
+
+    if (strcmp(resolved_component, "Collider") == 0) {
+        if (!find_actor_collider(actor)) {
+            lua_pushnil(lua_state);
+            return 1;
+        }
+
+        lua_newtable(lua_state);
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_set_offset, 1);
+        lua_setfield(lua_state, -2, "set_offset");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_get_offset, 1);
+        lua_setfield(lua_state, -2, "get_offset");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_set_size, 1);
+        lua_setfield(lua_state, -2, "set_size");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_get_size, 1);
+        lua_setfield(lua_state, -2, "get_size");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_set_enabled, 1);
+        lua_setfield(lua_state, -2, "set_enabled");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_get_enabled, 1);
+        lua_setfield(lua_state, -2, "get_enabled");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_set_is_trigger, 1);
+        lua_setfield(lua_state, -2, "set_is_trigger");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_get_is_trigger, 1);
+        lua_setfield(lua_state, -2, "get_is_trigger");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_get_bounds, 1);
+        lua_setfield(lua_state, -2, "get_bounds");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_overlaps_actor, 1);
+        lua_setfield(lua_state, -2, "overlaps_actor");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_overlaps_point, 1);
+        lua_setfield(lua_state, -2, "overlaps_point");
 
         return 1;
     }

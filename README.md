@@ -63,6 +63,7 @@ Available modules:
 - `Engine.Transform`
 - `Engine.Actor`
 - `Engine.Camera`
+- `Engine.Collider`
 - `Engine.Scene`
 - `Engine.DJ`
 - `Engine.UI`
@@ -83,6 +84,18 @@ Current built-in script-facing component handle:
 	- `get_number(param_name)`
 	- `set_flip_x(enabled)`
 	- `get_flip_x()`
+- `Collider`:
+	- `set_offset(x, y)`
+	- `get_offset()`
+	- `set_size(width, height)`
+	- `get_size()`
+	- `set_enabled(enabled)`
+	- `get_enabled()`
+	- `set_is_trigger(enabled)`
+	- `get_is_trigger()`
+	- `get_bounds()`
+	- `overlaps_actor(actor_id)`
+	- `overlaps_point(x, y)`
 
 Cross-actor lookup is also exposed through:
 
@@ -101,6 +114,18 @@ if enemy_anim then
 	enemy_anim.set("moving", false)
 end
 ```
+
+### Collider API (Lua)
+
+`Engine.Collider` targets the current actor collider component and supports:
+
+- `set_offset(x, y)` / `get_offset()`
+- `set_size(width, height)` / `get_size()`
+- `set_enabled(enabled)` / `get_enabled()`
+- `set_is_trigger(enabled)` / `get_is_trigger()`
+- `get_bounds()`
+- `overlaps_actor(actor_id)`
+- `overlaps_point(x, y)`
 
 ### Time API (Lua)
 
