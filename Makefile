@@ -91,7 +91,7 @@ LDFLAGS += -framework Cocoa -framework IOKit -framework CoreVideo -framework Cor
 LDLIBS += -lm
 endif
 
-.PHONY: all clean fclean re test check-allocators prepare-lua check-raylib
+.PHONY: all clean clean-test fclean re test check-allocators prepare-lua check-raylib
 
 all: check-allocators prepare-lua check-raylib $(TARGET)
 
@@ -136,13 +136,17 @@ clean:
 	@find $(OBJDIR) -type d -empty -delete 2>/dev/null || true
 	@rm -rf logs
 
+clean-test:
+	@rm -rf $(OBJDIR)/test
+	@rm -f $(TEST_TARGET)
+
 fclean: clean
-	@rm -f $(BINDIR)/springengine $(TEST_TARGET)
+	@rm -f $(BINDIR)/$(TARGET) $(TEST_TARGET)
 
 re: fclean all
 
 test: CPPFLAGS += -DTESTING
-test: re
+test: clean-test all
 	./$(TARGET)
 
 check-allocators:
