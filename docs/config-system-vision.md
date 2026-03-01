@@ -48,6 +48,8 @@ Actors are Unity-style GameObjects:
    - `[Sheets]` key/value map of `sheet_key = "texture/path.png"`
    - Per-state tables (`[Idle]`, `[Walk]`, etc.) with `sheet`, optional `fps`, optional `loop`, and `frames = [[x, y, w, h], ...]` (or `[[x, y, w, h, duration], ...]`)
    - Optional transition graph under `[State.plug]`, e.g. `[Idle.plug.Walk] condition = "moving"` or `[Walk.plug.Idle] condition = "not_moving"`; optional `speed_threshold` (default `0.01`).
+   - Lua-driven bool params are also supported with `condition = "param_true" | "param_false"` and `param = "name"` (set through `AnimConf.set("name", bool)` in scripts).
+   - Lua-driven numeric params are supported with `condition = "param_gt" | "param_lt"`, `param = "name"`, and threshold via `speed_threshold` (set through `AnimConf.set_number("name", value)` in scripts).
 
 ### Identity and Validation
 

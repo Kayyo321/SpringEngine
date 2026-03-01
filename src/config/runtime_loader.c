@@ -493,6 +493,52 @@ static int animated_sprite_find_state_index(const AnimatedSpriteState *state, co
     return -1;
 }
 
+static int animated_sprite_find_bool_param_index(const AnimatedSpriteState *state, const char *param_name) {
+    if (!state || !param_name || param_name[0] == '\0')
+        return -1;
+
+    for (int index = 0; index < state->bool_param_count; ++index) {
+        if (strcmp(state->bool_params[index].name, param_name) == 0)
+            return index;
+    }
+
+    return -1;
+}
+
+static boolean animated_sprite_get_bool_param(const AnimatedSpriteState *state, const char *param_name) {
+    const int param_index = animated_sprite_find_bool_param_index(state, param_name);
+    if (param_index < 0)
+        return False;
+
+    return state->bool_params[param_index].value ? True : False;
+}
+
+static int animated_sprite_find_number_param_index(const AnimatedSpriteState *state, const char *param_name) {
+    if (!state || !param_name || param_name[0] == '\0')
+        return -1;
+
+    for (int index = 0; index < state->number_param_count; ++index) {
+        if (strcmp(state->number_params[index].name, param_name) == 0)
+            return index;
+    }
+
+    return -1;
+}
+
+static float animated_sprite_get_number_param(const AnimatedSpriteState *state, const char *param_name, boolean *has_value) {
+    if (has_value)
+        *has_value = False;
+
+    const int param_index = animated_sprite_find_number_param_index(state, param_name);
+    if (param_index < 0)
+        return 0.0f;
+
+    if (has_value)
+        *has_value = True;
+
+    return state->number_params[param_index].value;
+}
+
 static AnimatedTransitionCondition animated_transition_condition_from_string(const char *value) {
     if (!value || value[0] == '\0')
         return AnimatedTransitionAlways;
@@ -503,10 +549,22 @@ static AnimatedTransitionCondition animated_transition_condition_from_string(con
     if (strcmp(value, "not_moving") == 0)
         return AnimatedTransitionNotMoving;
 
+    if (strcmp(value, "param_true") == 0)
+        return AnimatedTransitionParamTrue;
+
+    if (strcmp(value, "param_false") == 0)
+        return AnimatedTransitionParamFalse;
+
+    if (strcmp(value, "param_gt") == 0)
+        return AnimatedTransitionParamGreater;
+
+    if (strcmp(value, "param_lt") == 0)
+        return AnimatedTransitionParamLess;
+
     return AnimatedTransitionAlways;
 }
 
-static boolean animated_transition_is_triggered(const AnimatedSpriteTransition *transition, float movement_speed) {
+static boolean animated_transition_is_triggered(const AnimatedSpriteState *state, const AnimatedSpriteTransition *transition, float movement_speed) {
     if (!transition)
         return False;
 
@@ -517,6 +575,20 @@ static boolean animated_transition_is_triggered(const AnimatedSpriteTransition *
             return movement_speed >= transition->speed_threshold;
         case AnimatedTransitionNotMoving:
             return movement_speed < transition->speed_threshold;
+        case AnimatedTransitionParamTrue:
+            return animated_sprite_get_bool_param(state, transition->param_name) ? True : False;
+        case AnimatedTransitionParamFalse:
+            return animated_sprite_get_bool_param(state, transition->param_name) ? False : True;
+        case AnimatedTransitionParamGreater: {
+            boolean has_value = False;
+            const float param_value = animated_sprite_get_number_param(state, transition->param_name, &has_value);
+            return has_value && param_value > transition->speed_threshold;
+        }
+        case AnimatedTransitionParamLess: {
+            boolean has_value = False;
+            const float param_value = animated_sprite_get_number_param(state, transition->param_name, &has_value);
+            return has_value && param_value < transition->speed_threshold;
+        }
         default:
             return False;
     }
@@ -754,6 +826,7 @@ static result animated_sprite_component_initialize(Actor *actor, ActorComponent 
                 transition->target_state_index = -1;
                 transition->condition = AnimatedTransitionAlways;
                 transition->speed_threshold = 0.01f;
+                transition->param_name[0] = '\0';
 
                 toml_datum_t condition = toml_get(transition_table, "condition");
                 if (condition.type == TOML_STRING && condition.u.s && condition.u.s[0] != '\0')
@@ -763,6 +836,21 @@ static result animated_sprite_component_initialize(Actor *actor, ActorComponent 
                 float threshold_value = 0.0f;
                 if (toml_number_to_float(threshold, &threshold_value) && threshold_value >= 0.0f)
                     transition->speed_threshold = threshold_value;
+
+                toml_datum_t param = toml_get(transition_table, "param");
+                if (param.type == TOML_STRING && param.u.s && param.u.s[0] != '\0') {
+                    if (snprintf(transition->param_name, sizeof(transition->param_name), "%s", param.u.s) >= (int)sizeof(transition->param_name)) {
+                        log_err("Animated sprite transition param name is too long in state '%s'", state_definition->name);
+                        goto cleanup;
+                    }
+                }
+
+                if ((transition->condition == AnimatedTransitionParamTrue || transition->condition == AnimatedTransitionParamFalse ||
+                     transition->condition == AnimatedTransitionParamGreater || transition->condition == AnimatedTransitionParamLess) &&
+                    transition->param_name[0] == '\0') {
+                    log_err("Animated sprite transition in state '%s' uses param condition but has no param field", state_definition->name);
+                    goto cleanup;
+                }
             }
         }
 
@@ -831,7 +919,7 @@ static void animated_sprite_component_update(AnimatedSpriteState *state, float d
                 continue;
 
             const AnimatedSpriteTransition *transition = &state->transitions[transition_index];
-            if (!animated_transition_is_triggered(transition, movement_speed))
+            if (!animated_transition_is_triggered(state, transition, movement_speed))
                 continue;
 
             if (transition->target_state_index < 0 || transition->target_state_index >= state->state_count)

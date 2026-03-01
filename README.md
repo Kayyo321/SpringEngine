@@ -67,6 +67,39 @@ Available modules:
 - `Engine.DJ`
 - `Engine.UI`
 
+### Component Access API (Lua)
+
+Script tables now include `self.get_component(component_name, actor_id?)`.
+
+- If `actor_id` is omitted, it resolves on the current actor.
+- If `actor_id` is provided, it resolves on that actor.
+
+Current built-in script-facing component handle:
+
+- `AnimConf` (alias of `AnimatedSprite`):
+	- `set(param_name, bool)`
+	- `get(param_name)`
+	- `set_number(param_name, number)`
+	- `get_number(param_name)`
+
+Cross-actor lookup is also exposed through:
+
+- `Engine.Actor.get_component(actor_id, component_name)`
+
+Example:
+
+```lua
+local anim_conf = self.get_component("AnimConf")
+if anim_conf then
+	anim_conf.set("moving", true)
+end
+
+local enemy_anim = require("Engine.Actor").get_component("enemy_01", "AnimConf")
+if enemy_anim then
+	enemy_anim.set("moving", false)
+end
+```
+
 ### Time API (Lua)
 
 `Engine.Time` currently supports:

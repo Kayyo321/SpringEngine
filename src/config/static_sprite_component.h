@@ -15,6 +15,8 @@ enum {
     AnimatedSpriteMaxStates = 32,
     AnimatedSpriteMaxFrames = 256,
     AnimatedSpriteMaxTransitions = 128,
+    AnimatedSpriteMaxBoolParams = 64,
+    AnimatedSpriteMaxNumberParams = 64,
     AnimatedSpriteMaxStateName = 64,
     AnimatedSpriteMaxSheetKey = 64,
 };
@@ -23,6 +25,10 @@ typedef enum {
     AnimatedTransitionAlways,
     AnimatedTransitionMoving,
     AnimatedTransitionNotMoving,
+    AnimatedTransitionParamTrue,
+    AnimatedTransitionParamFalse,
+    AnimatedTransitionParamGreater,
+    AnimatedTransitionParamLess,
 } AnimatedTransitionCondition;
 
 typedef struct {
@@ -35,7 +41,18 @@ typedef struct {
     int target_state_index;
     AnimatedTransitionCondition condition;
     float speed_threshold;
+    char param_name[AnimatedSpriteMaxStateName];
 } AnimatedSpriteTransition;
+
+typedef struct {
+    char name[AnimatedSpriteMaxStateName];
+    boolean value;
+} AnimatedSpriteBoolParam;
+
+typedef struct {
+    char name[AnimatedSpriteMaxStateName];
+    float value;
+} AnimatedSpriteNumberParam;
 
 typedef struct {
     char key[AnimatedSpriteMaxSheetKey];
@@ -74,6 +91,10 @@ typedef struct {
     int frame_count;
     AnimatedSpriteTransition transitions[AnimatedSpriteMaxTransitions];
     int transition_count;
+    AnimatedSpriteBoolParam bool_params[AnimatedSpriteMaxBoolParams];
+    int bool_param_count;
+    AnimatedSpriteNumberParam number_params[AnimatedSpriteMaxNumberParams];
+    int number_param_count;
     int current_state_index;
     int current_frame_offset;
     float frame_timer;
