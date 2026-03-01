@@ -92,6 +92,18 @@ static int lua_ui_set_document_layer(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_ui_bring_to_front(lua_State *lua_state) {
+    const char *document_id = luaL_checkstring(lua_state, 1);
+    lua_pushboolean(lua_state, runtime_ui_bring_document_to_front(document_id) == Ok ? 1 : 0);
+    return 1;
+}
+
+static int lua_ui_send_to_back(lua_State *lua_state) {
+    const char *document_id = luaL_checkstring(lua_state, 1);
+    lua_pushboolean(lua_state, runtime_ui_send_document_to_back(document_id) == Ok ? 1 : 0);
+    return 1;
+}
+
 static int lua_ui_current_documents(lua_State *lua_state) {
     usize document_count = 0;
     if (runtime_ui_get_document_count(&document_count) != Ok) {
@@ -121,6 +133,8 @@ static const luaL_Reg ui_methods[] = {
     {"push_document", lua_ui_push_document},
     {"pop_document", lua_ui_pop_document},
     {"set_document_layer", lua_ui_set_document_layer},
+    {"bring_to_front", lua_ui_bring_to_front},
+    {"send_to_back", lua_ui_send_to_back},
     {"current_documents", lua_ui_current_documents},
     {NULL, NULL},
 };

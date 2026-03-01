@@ -100,6 +100,8 @@ Available modules:
 - `push_document(path)`
 - `pop_document(document_id)`
 - `set_document_layer(document_id, layer)`
+- `bring_to_front(document_id)`
+- `send_to_back(document_id)`
 - `current_documents()`
 
 ### Cleanup Verification

@@ -104,6 +104,7 @@ static result parse_widget_table(UiRuntime *runtime, UiWidget *widget, toml_datu
 static result resolve_widget_parents(UiDocument *document);
 static int find_widget_index_by_id(const UiDocument *document, const char *widget_id);
 static int ui_runtime_max_layer(const UiRuntime *runtime);
+static int ui_runtime_min_layer(const UiRuntime *runtime);
 static int ui_runtime_find_top_document_index(const UiRuntime *runtime, boolean *visited);
 
 static UiRect resolve_widget_rect(const UiDocument *document, usize widget_index, UiRect screen_rect, int *stack_state);
@@ -465,6 +466,32 @@ result ui_runtime_set_document_layer(UiRuntime *runtime, const char *document_id
     return Ok;
 }
 
+result ui_runtime_bring_document_to_front(UiRuntime *runtime, const char *document_id) {
+    if (!runtime || !document_id || document_id[0] == '\0')
+        return Err;
+
+    UiDocument *document = find_document_by_id(runtime, document_id);
+    if (!document)
+        return Err;
+
+    document->layer = ui_runtime_max_layer(runtime) + 1;
+    document->stack_order = runtime->next_stack_order++;
+    return Ok;
+}
+
+result ui_runtime_send_document_to_back(UiRuntime *runtime, const char *document_id) {
+    if (!runtime || !document_id || document_id[0] == '\0')
+        return Err;
+
+    UiDocument *document = find_document_by_id(runtime, document_id);
+    if (!document)
+        return Err;
+
+    document->layer = ui_runtime_min_layer(runtime) - 1;
+    document->stack_order = runtime->next_stack_order++;
+    return Ok;
+}
+
 result ui_runtime_get_document_count(UiRuntime *runtime, usize *out_count) {
     if (!runtime || !out_count)
         return Err;
@@ -628,6 +655,19 @@ static int ui_runtime_max_layer(const UiRuntime *runtime) {
     }
 
     return max_layer;
+}
+
+static int ui_runtime_min_layer(const UiRuntime *runtime) {
+    if (!runtime || runtime->document_count == 0)
+        return 0;
+
+    int min_layer = runtime->documents[0].layer;
+    for (usize index = 1; index < runtime->document_count; ++index) {
+        if (runtime->documents[index].layer < min_layer)
+            min_layer = runtime->documents[index].layer;
+    }
+
+    return min_layer;
 }
 
 static int ui_runtime_find_top_document_index(const UiRuntime *runtime, boolean *visited) {

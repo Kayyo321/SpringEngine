@@ -20,6 +20,8 @@ result ui_runtime_set_node_text(UiRuntime *runtime, const char *document_id, con
 result ui_runtime_push_document(UiRuntime *runtime, const char *document_path);
 result ui_runtime_pop_document(UiRuntime *runtime, const char *document_id);
 result ui_runtime_set_document_layer(UiRuntime *runtime, const char *document_id, int layer);
+result ui_runtime_bring_document_to_front(UiRuntime *runtime, const char *document_id);
+result ui_runtime_send_document_to_back(UiRuntime *runtime, const char *document_id);
 result ui_runtime_get_document_count(UiRuntime *runtime, usize *out_count);
 result ui_runtime_get_document_id_at(UiRuntime *runtime, usize index, const char **out_document_id);
 

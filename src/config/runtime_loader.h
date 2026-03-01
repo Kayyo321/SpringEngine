@@ -12,6 +12,8 @@ result runtime_ui_set_text(const char *document_id, const char *node_id, const c
 result runtime_ui_push_document(const char *document_path);
 result runtime_ui_pop_document(const char *document_id);
 result runtime_ui_set_document_layer(const char *document_id, int layer);
+result runtime_ui_bring_document_to_front(const char *document_id);
+result runtime_ui_send_document_to_back(const char *document_id);
 result runtime_ui_get_document_count(usize *out_count);
 const char *runtime_ui_get_document_id_at(usize index);
 

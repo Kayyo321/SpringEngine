@@ -1507,6 +1507,20 @@ result runtime_ui_set_document_layer(const char *document_id, int layer) {
     return ui_runtime_set_document_layer(runtime_state.ui_runtime, document_id, layer);
 }
 
+result runtime_ui_bring_document_to_front(const char *document_id) {
+    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id)
+        return Err;
+
+    return ui_runtime_bring_document_to_front(runtime_state.ui_runtime, document_id);
+}
+
+result runtime_ui_send_document_to_back(const char *document_id) {
+    if (!runtime_state.active || !runtime_state.ui_runtime || !document_id)
+        return Err;
+
+    return ui_runtime_send_document_to_back(runtime_state.ui_runtime, document_id);
+}
+
 result runtime_ui_get_document_count(usize *out_count) {
     if (!runtime_state.active || !runtime_state.ui_runtime || !out_count)
         return Err;
