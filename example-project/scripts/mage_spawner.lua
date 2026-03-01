@@ -5,7 +5,7 @@ local Time = require("Engine.Time")
 local mage_spawner = {
     prefab_id = "Mage",
     initial_delay = 1.0,
-    spawn_interval = 4.5 * 1.5,
+    spawn_interval = 5.0,
     spawn_timer = 0.0,
 }
 
@@ -18,6 +18,9 @@ local function log_message(message)
 end
 
 local function spawn_mage(self)
+    self.spawn_interval = self.spawn_interval - math.random() * 2.0
+    self.spawn_interval = math.max(1.5, self.spawn_interval)
+
     local spawned_actor = Scene.instantiate_prefab(self.prefab_id)
     if not spawned_actor then
         log_message("mage_spawner: failed to instantiate Mage prefab")

@@ -7,8 +7,8 @@ local Time = require("Engine.Time")
 
 local player = {
 	health = 100.0,
-	move_speed = 180.0,
-	jump_force = 78.0 * 18.0,
+	move_speed = 120.0,
+	jump_force = 78.0 * 14.0,
 	jump_gravity_scale = 5.0,
 	facing_x = 1.0,
 }

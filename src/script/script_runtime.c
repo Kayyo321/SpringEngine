@@ -529,6 +529,44 @@ static int lua_component_collider_overlaps_actor(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_component_collider_overlaps_all(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    ColliderComponentData *state = find_actor_collider(actor);
+
+    lua_newtable(lua_state);
+
+    if (!state || !actor)
+        return 1;
+
+    if (!actor->enabled || !state->enabled)
+        return 1;
+
+    ScriptRuntime *runtime = lua_runtime_instance(lua_state);
+    if (!runtime || !runtime->actor_registry)
+        return 1;
+
+    int output_index = 1;
+    for (usize actor_index = 0; actor_index < runtime->actor_registry->actor_count; ++actor_index) {
+        Actor *candidate = &runtime->actor_registry->actors[actor_index];
+        if (!candidate || candidate == actor || !candidate->enabled)
+            continue;
+
+        ColliderComponentData *candidate_state = find_actor_collider(candidate);
+        if (!candidate_state || !candidate_state->enabled)
+            continue;
+
+        if (!collider_components_overlap(actor, state, candidate, candidate_state))
+            continue;
+
+        lua_pushstring(lua_state, candidate->id ? candidate->id : "");
+        lua_rawseti(lua_state, -2, output_index++);
+    }
+
+    return 1;
+}
+
 static int lua_component_collider_overlaps_point(lua_State *lua_state) {
     const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
     const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
@@ -838,6 +876,10 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
         lua_pushcclosure(lua_state, lua_component_collider_overlaps_actor, 1);
         lua_setfield(lua_state, -2, "overlaps_actor");
+
+        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
+        lua_pushcclosure(lua_state, lua_component_collider_overlaps_all, 1);
+        lua_setfield(lua_state, -2, "overlaps_all");
 
         lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
         lua_pushcclosure(lua_state, lua_component_collider_overlaps_point, 1);

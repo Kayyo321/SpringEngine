@@ -170,6 +170,43 @@ static int lua_collider_overlaps_actor(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_collider_overlaps_all(lua_State *lua_state) {
+    Actor *current_actor = Null;
+    ColliderComponentData *current_collider = Null;
+    if (lua_collider_get_current(lua_state, &current_actor, &current_collider) != Ok) {
+        lua_newtable(lua_state);
+        return 1;
+    }
+
+    lua_newtable(lua_state);
+
+    if (!current_actor->enabled || !current_collider->enabled)
+        return 1;
+
+    ScriptRuntime *runtime = lua_runtime_instance(lua_state);
+    if (!runtime || !runtime->actor_registry)
+        return 1;
+
+    int output_index = 1;
+    for (usize actor_index = 0; actor_index < runtime->actor_registry->actor_count; ++actor_index) {
+        Actor *candidate = &runtime->actor_registry->actors[actor_index];
+        if (!candidate || candidate == current_actor || !candidate->enabled)
+            continue;
+
+        ColliderComponentData *candidate_collider = actor_find_collider_component(candidate);
+        if (!candidate_collider || !candidate_collider->enabled)
+            continue;
+
+        if (!collider_components_overlap(current_actor, current_collider, candidate, candidate_collider))
+            continue;
+
+        lua_pushstring(lua_state, candidate->id ? candidate->id : "");
+        lua_rawseti(lua_state, -2, output_index++);
+    }
+
+    return 1;
+}
+
 static int lua_collider_overlaps_point(lua_State *lua_state) {
     Actor *actor = Null;
     ColliderComponentData *collider = Null;
@@ -197,6 +234,7 @@ static const luaL_Reg collider_methods[] = {
     {"get_is_trigger", lua_collider_get_is_trigger},
     {"get_bounds", lua_collider_get_bounds},
     {"overlaps_actor", lua_collider_overlaps_actor},
+    {"overlaps_all", lua_collider_overlaps_all},
     {"overlaps_point", lua_collider_overlaps_point},
     {NULL, NULL},
 };
