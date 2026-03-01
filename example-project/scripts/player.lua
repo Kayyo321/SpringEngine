@@ -8,6 +8,7 @@ local Time = require("Engine.Time")
 local player = {
 	move_speed = 45.0,
 	jump_force = 78.0,
+	facing_x = 1.0,
 	apex_sfx_played = true,
 	apex_velocity_threshold = 6.0,
 }
@@ -47,6 +48,7 @@ end
 
 function player:start()
 	self.apex_sfx_played = true
+	self.facing_x = 1.0
 
 	if Rigidbody.set_velocity then
 		Rigidbody.set_velocity(0.0, 0.0)
@@ -70,9 +72,19 @@ function player:update()
 	local horizontal_speed = math.abs(effective_move_x)
 	local is_moving = horizontal_speed > 0.001
 
+	if move_x < -0.001 then
+		self.facing_x = -1.0
+	elseif move_x > 0.001 then
+		self.facing_x = 1.0
+	end
+
 	local anim_conf = self.get_component and self.get_component("AnimConf") or nil
 	if anim_conf and anim_conf.set then
 		anim_conf.set("moving", is_moving)
+	end
+
+	if anim_conf and anim_conf.set_flip_x then
+		anim_conf.set_flip_x(self.facing_x < 0.0)
 	end
 
 	if Transform.translate then
