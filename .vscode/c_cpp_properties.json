@@ -6,7 +6,9 @@
       "compilerPath": "/usr/bin/clang",
       "intelliSenseMode": "macos-clang-arm64",
       "cStandard": "c11",
-      "defines": [],
+      "defines": [
+        "_POSIX_C_SOURCE=200809L"
+      ],
       "includePath": [
         "${workspaceFolder}/src",
         "${workspaceFolder}/src/**",
@@ -35,6 +37,7 @@
       "intelliSenseMode": "macos-clang-arm64",
       "cStandard": "c11",
       "defines": [
+        "_POSIX_C_SOURCE=200809L",
         "TESTING=1"
       ],
       "includePath": [

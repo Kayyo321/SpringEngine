@@ -8,6 +8,18 @@
 #include "testing/testing.h"
 #endif // TESTING
 
+static double elapsed_seconds(const struct timespec start_time, const struct timespec end_time) {
+    time_t seconds = end_time.tv_sec - start_time.tv_sec;
+    long nanoseconds = end_time.tv_nsec - start_time.tv_nsec;
+
+    if (nanoseconds < 0) {
+        --seconds;
+        nanoseconds += 1000000000L;
+    }
+
+    return (double)seconds + ((double)nanoseconds / 1000000000.0);
+}
+
 static void spring_engine(void) {
     if (open_logger() != Ok)
         quit(Err);
@@ -15,7 +27,9 @@ static void spring_engine(void) {
     log_msg("%s is starting", program.title);
 
     {
-        const time_t start_time = time(Null);
+        struct timespec start_time;
+        struct timespec end_time;
+        clock_gettime(CLOCK_MONOTONIC, &start_time);
 
 #ifdef TESTING
         run_all_tests();
@@ -23,9 +37,9 @@ static void spring_engine(void) {
         run_program();
 #endif // TESTING
 
-        const time_t end_time = time(Null);
-        const double elapsed = difftime(end_time, start_time);
-        log_msg("Program executed in %.2f seconds.", elapsed);
+        clock_gettime(CLOCK_MONOTONIC, &end_time);
+        const double elapsed = elapsed_seconds(start_time, end_time);
+        log_msg("Program executed in %.3f seconds.", elapsed);
     }
 
     log_msg("Finished with %lu warnings and %lu errors.", get_warn_count(), get_error_count());
