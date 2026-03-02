@@ -36,8 +36,10 @@ function trigger:update()
 				if tag == self.player_tag then
 					local player_script = self.get_component and self:get_component(self.player_module_alias, actor_id) or nil
 					if player_script and player_script.call then
-						player_script.call("take_damage", self.damage)
-						player_script.call("reset_to_stage_center", self.reset_x, self.reset_y, self.reset_z)
+						local survived = player_script.call("take_damage", self.damage)
+						if survived ~= false then
+							player_script.call("reset_to_stage_center", self.reset_x, self.reset_y, self.reset_z)
+						end
 					end
 					self.cooldown_remaining = self.hit_cooldown
 					return

@@ -322,12 +322,12 @@ end
 
 function player:take_damage(amount, source_x)
 	if self.is_dead then
-		return
+		return false
 	end
 
 	local final_damage = tonumber(amount) or 0.0
 	if final_damage <= 0.0 then
-		return
+		return true
 	end
 
 	self.health = self.health - final_damage
@@ -356,7 +356,10 @@ function player:take_damage(amount, source_x)
 
 	if self.health <= 0.0 then
 		self:die()
+		return false
 	end
+
+	return true
 end
 
 function player:die()
@@ -381,6 +384,10 @@ function player:die()
 end
 
 function player:reset_to_stage_center(x, y, z)
+	if self.is_dead then
+		return false
+	end
+
 	if Transform.set_position then
 		Transform.set_position(x or 0.0, y or 1.0, z or 0.0)
 	end
@@ -388,6 +395,8 @@ function player:reset_to_stage_center(x, y, z)
 	if Rigidbody.set_velocity then
 		Rigidbody.set_velocity(0.0, 0.0)
 	end
+
+	return true
 end
 
 return player

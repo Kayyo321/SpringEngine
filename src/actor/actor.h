@@ -55,6 +55,8 @@ struct Actor {
     usize tag_count;
     boolean has_parent;
     char parent_id[ActorMaxParentIdLength];
+    ActorVector3 parent_local_anchor;
+    boolean parent_anchor_initialized;
     ActorTransform transform;
     ActorTransform previous_transform;
 

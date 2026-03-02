@@ -32,6 +32,7 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
 static int find_actor_index_by_id(const char *actor_id);
 static result validate_actor_parent_links(void);
 static void apply_parent_transform_deltas(void);
+static void sync_parented_actor_positions(void);
 static void capture_actor_previous_transforms(void);
 Actor *find_actor_by_id(const char *actor_id);
 static void refresh_component_actor_backrefs(void);
@@ -447,6 +448,34 @@ static void apply_parent_transform_deltas(void) {
 
     deallocate(visiting_heap);
     deallocate(applied_heap);
+}
+
+static void sync_parented_actor_positions(void) {
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->has_parent || actor->parent_id[0] == '\0') {
+            actor->parent_anchor_initialized = False;
+            continue;
+        }
+
+        const int parent_index = find_actor_index_by_id(actor->parent_id);
+        if (parent_index < 0)
+            continue;
+
+        Actor *parent = &runtime_state.actor_registry.actors[parent_index];
+        if (!actor->parent_anchor_initialized) {
+            actor->parent_local_anchor = (ActorVector3){
+                actor->transform.position.x - parent->transform.position.x,
+                actor->transform.position.y - parent->transform.position.y,
+                actor->transform.position.z - parent->transform.position.z,
+            };
+            actor->parent_anchor_initialized = True;
+        }
+
+        actor->transform.position.x = parent->transform.position.x + actor->parent_local_anchor.x;
+        actor->transform.position.y = parent->transform.position.y + actor->parent_local_anchor.y;
+        actor->transform.position.z = parent->transform.position.z + actor->parent_local_anchor.z;
+    }
 }
 
 static void capture_actor_previous_transforms(void) {
@@ -2679,8 +2708,9 @@ static void frame_update(void) {
         }
     }
 
-    apply_parent_transform_deltas();
     rigidbody_component_resolve_collisions();
+    apply_parent_transform_deltas();
+    sync_parented_actor_positions();
 
     process_pending_actor_destroys();
 

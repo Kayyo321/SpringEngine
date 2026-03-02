@@ -25,6 +25,7 @@ result actor_set_parent(Actor *actor, const char *parent_id) {
 
     actor->has_parent = False;
     actor->parent_id[0] = '\0';
+    actor->parent_anchor_initialized = False;
 
     if (!parent_id || parent_id[0] == '\0')
         return Ok;
@@ -86,6 +87,8 @@ void actor_init(Actor *actor, char *id, boolean enabled, int layer) {
     memset(actor->tags, 0, sizeof(actor->tags));
     actor->has_parent = False;
     actor->parent_id[0] = '\0';
+    actor->parent_local_anchor = (ActorVector3){0.0f, 0.0f, 0.0f};
+    actor->parent_anchor_initialized = False;
     actor_transform_reset(actor);
     actor_capture_previous_transform(actor);
     actor->components_heap = NullHeap;
