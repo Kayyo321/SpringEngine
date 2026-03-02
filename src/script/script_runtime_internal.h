@@ -5,6 +5,7 @@
 
 #include "actor/camera_component.h"
 #include "actor/collider_component.h"
+#include "actor/light_component.h"
 #include "actor/rigidbody_component.h"
 #include "config/runtime_loader.h"
 #include "config/static_sprite_component.h"

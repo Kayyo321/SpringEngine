@@ -4,6 +4,7 @@
 #include "actor/actor.h"
 #include "actor/camera_component.h"
 #include "actor/collider_component.h"
+#include "actor/light_component.h"
 #include "actor/rigidbody_component.h"
 #include "config/static_sprite_component.h"
 #include "dj/dj.h"
@@ -47,6 +48,9 @@ static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t act
 static result animated_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static result collider_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static result rigidbody_component_initialize(Actor *actor, ActorComponent *component, void *context);
+static result point_light_component_initialize(Actor *actor, ActorComponent *component, void *context);
+static result spot_light_component_initialize(Actor *actor, ActorComponent *component, void *context);
+static result direction_light_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static result texture_cache_acquire(const char *resolved_texture_path, Texture2D *out_texture);
 static void texture_cache_release(const char *resolved_texture_path, Texture2D texture);
 static void texture_cache_reset(void);
@@ -62,8 +66,12 @@ static void static_color_component_dispose(StaticColorState *state);
 static void camera_component_dispose(CameraComponentData *state);
 static void collider_component_dispose(ColliderComponentData *state);
 static void rigidbody_component_dispose(RigidbodyComponentData *state);
+static void point_light_component_dispose(PointLightComponentData *state);
+static void spot_light_component_dispose(SpotLightComponentData *state);
+static void direction_light_component_dispose(DirectionLightComponentData *state);
 static void rigidbody_component_integrate(Actor *actor, RigidbodyComponentData *state, float delta_time);
 static void rigidbody_component_resolve_collisions(void);
+static void draw_point_light_overlays(CameraComponentData *active_camera, Actor *active_camera_actor);
 
 static const float RuntimePhysicsGravityX = 0.0f;
 static const float RuntimePhysicsGravityY = 240.0f;
@@ -469,6 +477,24 @@ static void refresh_component_actor_backrefs(void) {
             if (strcmp(component->descriptor.name, "StaticColor") == 0) {
                 StaticColorState *state = (StaticColorState *)component->data;
                 state->actor = actor;
+                continue;
+            }
+
+            if (strcmp(component->descriptor.name, "PointLight") == 0) {
+                PointLightComponentData *state = (PointLightComponentData *)component->data;
+                state->actor = actor;
+                continue;
+            }
+
+            if (strcmp(component->descriptor.name, "SpotLight") == 0) {
+                SpotLightComponentData *state = (SpotLightComponentData *)component->data;
+                state->actor = actor;
+                continue;
+            }
+
+            if (strcmp(component->descriptor.name, "DirectionLight") == 0) {
+                DirectionLightComponentData *state = (DirectionLightComponentData *)component->data;
+                state->actor = actor;
             }
         }
     }
@@ -500,6 +526,15 @@ static void dispose_actor_components(Actor *actor) {
 
         if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Rigidbody") == 0)
             rigidbody_component_dispose((RigidbodyComponentData *)component->data);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "PointLight") == 0)
+            point_light_component_dispose((PointLightComponentData *)component->data);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "SpotLight") == 0)
+            spot_light_component_dispose((SpotLightComponentData *)component->data);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "DirectionLight") == 0)
+            direction_light_component_dispose((DirectionLightComponentData *)component->data);
     }
 }
 
@@ -1039,6 +1074,63 @@ static result rigidbody_component_initialize(Actor *actor, ActorComponent *compo
     return Ok;
 }
 
+static result point_light_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)context;
+
+    if (!actor || !component || !component->data)
+        return Err;
+
+    PointLightComponentData *state = (PointLightComponentData *)component->data;
+    state->actor = actor;
+
+    if (state->intensity < 0.0f)
+        state->intensity = 0.0f;
+    if (state->range <= 0.0f)
+        state->range = 0.01f;
+
+    return Ok;
+}
+
+static result spot_light_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)context;
+
+    if (!actor || !component || !component->data)
+        return Err;
+
+    SpotLightComponentData *state = (SpotLightComponentData *)component->data;
+    state->actor = actor;
+
+    if (fabsf(state->direction.x) < 0.0001f && fabsf(state->direction.y) < 0.0001f && fabsf(state->direction.z) < 0.0001f)
+        return Err;
+
+    if (state->intensity < 0.0f)
+        state->intensity = 0.0f;
+    if (state->range <= 0.0f)
+        state->range = 0.01f;
+    if (state->angle <= 0.0f)
+        state->angle = 35.0f;
+
+    return Ok;
+}
+
+static result direction_light_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)context;
+
+    if (!actor || !component || !component->data)
+        return Err;
+
+    DirectionLightComponentData *state = (DirectionLightComponentData *)component->data;
+    state->actor = actor;
+
+    if (fabsf(state->direction.x) < 0.0001f && fabsf(state->direction.y) < 0.0001f && fabsf(state->direction.z) < 0.0001f)
+        return Err;
+
+    if (state->intensity < 0.0f)
+        state->intensity = 0.0f;
+
+    return Ok;
+}
+
 static void camera_component_dispose(CameraComponentData *state) {
     if (!state)
         return;
@@ -1056,6 +1148,30 @@ static void collider_component_dispose(ColliderComponentData *state) {
 }
 
 static void rigidbody_component_dispose(RigidbodyComponentData *state) {
+    if (!state)
+        return;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
+
+static void point_light_component_dispose(PointLightComponentData *state) {
+    if (!state)
+        return;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
+
+static void spot_light_component_dispose(SpotLightComponentData *state) {
+    if (!state)
+        return;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
+
+static void direction_light_component_dispose(DirectionLightComponentData *state) {
     if (!state)
         return;
 
@@ -2411,7 +2527,6 @@ static Rectangle project_world_rectangle(Rectangle world_bounds, CameraComponent
 
     return projected;
 }
-
 static void debug_draw_collider_borders(void) {
     usize visible_index = 0;
     usize collider_count = 0;
@@ -2461,6 +2576,63 @@ static void debug_draw_collider_borders(void) {
     }
 }
 #endif
+
+static void draw_point_light_overlays(CameraComponentData *active_camera, Actor *active_camera_actor) {
+    BeginBlendMode(BLEND_ADDITIVE);
+
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->enabled)
+            continue;
+
+        PointLightComponentData *point_light = actor_find_point_light_component(actor);
+        if (!point_light || !point_light->enabled)
+            continue;
+
+        const float world_x = actor->transform.position.x + point_light->position.x;
+        const float world_y = actor->transform.position.y + point_light->position.y;
+
+        float draw_x = world_x;
+        float draw_y = world_y;
+        float draw_radius = point_light->range;
+        if (draw_radius <= 0.0f)
+            draw_radius = 1.0f;
+
+        if (active_camera && active_camera_actor) {
+            float zoom = 1.0f;
+            if (active_camera->camera.fovy > 0.001f)
+                zoom = 60.0f / active_camera->camera.fovy;
+
+            const float camera_x = active_camera_actor->transform.position.x;
+            const float camera_y = active_camera_actor->transform.position.y;
+            draw_x = (world_x - camera_x) * zoom + ((float)GetScreenWidth() * 0.5f);
+            draw_y = (world_y - camera_y) * zoom + ((float)GetScreenHeight() * 0.5f);
+            draw_radius *= zoom;
+        }
+
+        if (draw_radius <= 0.5f)
+            continue;
+
+        float intensity = point_light->intensity;
+        if (intensity < 0.0f)
+            intensity = 0.0f;
+        if (intensity > 8.0f)
+            intensity = 8.0f;
+
+        const Color lit_color = apply_global_light_to_color(point_light->color);
+        int alpha = (int)(intensity * 70.0f);
+        if (alpha < 0)
+            alpha = 0;
+        if (alpha > 255)
+            alpha = 255;
+
+        const Color center = (Color){lit_color.r, lit_color.g, lit_color.b, (unsigned char)alpha};
+        const Color outer = (Color){0, 0, 0, 0};
+        DrawCircleGradient((int)draw_x, (int)draw_y, draw_radius, center, outer);
+    }
+
+    EndBlendMode();
+}
 
 static void frame_update(void) {
     if (!runtime_state.active)
@@ -2580,6 +2752,7 @@ static void frame_update(void) {
                 animated_sprite_component_draw((AnimatedSpriteState *)component->data, runtime_state.active_camera, runtime_state.active_camera_actor);
         }
     }
+    draw_point_light_overlays(runtime_state.active_camera, runtime_state.active_camera_actor);
 
 #ifdef SPRINGENGINE_DEBUG
     if (runtime_state.debug_show_collider_borders)
@@ -2619,6 +2792,15 @@ static void dispose_runtime_components(void) {
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Rigidbody") == 0)
                 rigidbody_component_dispose((RigidbodyComponentData *)component->data);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "PointLight") == 0)
+                point_light_component_dispose((PointLightComponentData *)component->data);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "SpotLight") == 0)
+                spot_light_component_dispose((SpotLightComponentData *)component->data);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "DirectionLight") == 0)
+                direction_light_component_dispose((DirectionLightComponentData *)component->data);
         }
     }
 }
@@ -2638,6 +2820,128 @@ static result read_vector3_from_table(toml_datum_t table, const char *key, Vecto
     };
 
     return Ok;
+}
+
+static result read_color_rgb_or_rgba(toml_datum_t table, const char *key, Color *out_color) {
+    if (!key || key[0] == '\0' || !out_color)
+        return Err;
+
+    toml_datum_t color = toml_get(table, key);
+    if (color.type != TOML_ARRAY)
+        return Err;
+
+    if (color.u.arr.size < 3 || color.u.arr.size > 4)
+        return Err;
+
+    for (int channel_index = 0; channel_index < color.u.arr.size; ++channel_index) {
+        if (color.u.arr.elem[channel_index].type != TOML_INT64)
+            return Err;
+    }
+
+    out_color->r = (unsigned char)color.u.arr.elem[0].u.int64;
+    out_color->g = (unsigned char)color.u.arr.elem[1].u.int64;
+    out_color->b = (unsigned char)color.u.arr.elem[2].u.int64;
+    out_color->a = (unsigned char)(color.u.arr.size == 4 ? color.u.arr.elem[3].u.int64 : 255);
+    return Ok;
+}
+
+static const toml_datum_t *find_point_light_component_table(toml_datum_t actor_table, toml_datum_t *out_point_light_table) {
+    if (out_point_light_table)
+        *out_point_light_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE || !out_point_light_table)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t point_light = toml_get(components, "PointLight");
+            if (point_light.type == TOML_TABLE) {
+                *out_point_light_table = point_light;
+                return out_point_light_table;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t point_light = toml_get(components, "PointLight");
+        if (point_light.type == TOML_TABLE) {
+            *out_point_light_table = point_light;
+            return out_point_light_table;
+        }
+    }
+
+    return Null;
+}
+
+static const toml_datum_t *find_spot_light_component_table(toml_datum_t actor_table, toml_datum_t *out_spot_light_table) {
+    if (out_spot_light_table)
+        *out_spot_light_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE || !out_spot_light_table)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t spot_light = toml_get(components, "SpotLight");
+            if (spot_light.type == TOML_TABLE) {
+                *out_spot_light_table = spot_light;
+                return out_spot_light_table;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t spot_light = toml_get(components, "SpotLight");
+        if (spot_light.type == TOML_TABLE) {
+            *out_spot_light_table = spot_light;
+            return out_spot_light_table;
+        }
+    }
+
+    return Null;
+}
+
+static const toml_datum_t *find_direction_light_component_table(toml_datum_t actor_table, toml_datum_t *out_direction_light_table) {
+    if (out_direction_light_table)
+        *out_direction_light_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE || !out_direction_light_table)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t direction_light = toml_get(components, "DirectionLight");
+            if (direction_light.type != TOML_TABLE)
+                direction_light = toml_get(components, "DirectionalLight");
+
+            if (direction_light.type == TOML_TABLE) {
+                *out_direction_light_table = direction_light;
+                return out_direction_light_table;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t direction_light = toml_get(components, "DirectionLight");
+        if (direction_light.type != TOML_TABLE)
+            direction_light = toml_get(components, "DirectionalLight");
+
+        if (direction_light.type == TOML_TABLE) {
+            *out_direction_light_table = direction_light;
+            return out_direction_light_table;
+        }
+    }
+
+    return Null;
 }
 
 static const toml_datum_t *find_camera_component_table(toml_datum_t actor_table, toml_datum_t *out_camera_table) {
@@ -3303,6 +3607,207 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         if (actor_add_component(actor, descriptor, rigidbody_state) != Ok) {
             rigidbody_component_dispose(rigidbody_state);
             log_err("Failed to add rigidbody component to actor '%s'", actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t point_light_component_table = {0};
+    if (find_point_light_component_table(actor_table, &point_light_component_table)) {
+        Heap point_light_heap = allocate(1, sizeof(PointLightComponentData));
+        PointLightComponentData *point_light_state = (PointLightComponentData *)point_light_heap.pointer;
+        if (!point_light_state) {
+            log_err("Failed to allocate point light state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(point_light_state, 0, sizeof(*point_light_state));
+        point_light_state->heap = point_light_heap;
+        point_light_state->actor = actor;
+        point_light_state->position = (Vector3){0.0f, 0.0f, 0.0f};
+        point_light_state->color = WHITE;
+        point_light_state->intensity = 1.0f;
+        point_light_state->range = 8.0f;
+        point_light_state->enabled = True;
+
+        toml_datum_t position = toml_get(point_light_component_table, "position");
+        if (position.type != TOML_UNKNOWN && read_vector3_from_table(point_light_component_table, "position", &point_light_state->position) != Ok) {
+            point_light_component_dispose(point_light_state);
+            log_err("Actor '%s' has invalid PointLight.position; expected [x, y, z]", actor_id);
+            return Err;
+        }
+
+        toml_datum_t color = toml_get(point_light_component_table, "color");
+        if (color.type != TOML_UNKNOWN && read_color_rgb_or_rgba(point_light_component_table, "color", &point_light_state->color) != Ok) {
+            point_light_component_dispose(point_light_state);
+            log_err("Actor '%s' has invalid PointLight.color; expected [r, g, b] or [r, g, b, a]", actor_id);
+            return Err;
+        }
+
+        float number_value = 0.0f;
+        toml_datum_t intensity = toml_get(point_light_component_table, "intensity");
+        if (toml_number_to_float(intensity, &number_value) && number_value >= 0.0f)
+            point_light_state->intensity = number_value;
+
+        toml_datum_t range = toml_get(point_light_component_table, "range");
+        if (toml_number_to_float(range, &number_value) && number_value > 0.0f)
+            point_light_state->range = number_value;
+
+        toml_datum_t enabled = toml_get(point_light_component_table, "enabled");
+        if (enabled.type == TOML_BOOLEAN)
+            point_light_state->enabled = enabled.u.boolean ? True : False;
+
+        ComponentDescriptor descriptor = {
+            .name = "PointLight",
+            .kind = ComponentBuiltin,
+            .initialize = point_light_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, point_light_state) != Ok) {
+            point_light_component_dispose(point_light_state);
+            log_err("Failed to add point light component to actor '%s'", actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t spot_light_component_table = {0};
+    if (find_spot_light_component_table(actor_table, &spot_light_component_table)) {
+        Heap spot_light_heap = allocate(1, sizeof(SpotLightComponentData));
+        SpotLightComponentData *spot_light_state = (SpotLightComponentData *)spot_light_heap.pointer;
+        if (!spot_light_state) {
+            log_err("Failed to allocate spot light state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(spot_light_state, 0, sizeof(*spot_light_state));
+        spot_light_state->heap = spot_light_heap;
+        spot_light_state->actor = actor;
+        spot_light_state->position = (Vector3){0.0f, 0.0f, 0.0f};
+        spot_light_state->direction = (Vector3){0.0f, -1.0f, 0.0f};
+        spot_light_state->color = WHITE;
+        spot_light_state->intensity = 1.0f;
+        spot_light_state->range = 12.0f;
+        spot_light_state->angle = 35.0f;
+        spot_light_state->enabled = True;
+
+        toml_datum_t position = toml_get(spot_light_component_table, "position");
+        if (position.type != TOML_UNKNOWN && read_vector3_from_table(spot_light_component_table, "position", &spot_light_state->position) != Ok) {
+            spot_light_component_dispose(spot_light_state);
+            log_err("Actor '%s' has invalid SpotLight.position; expected [x, y, z]", actor_id);
+            return Err;
+        }
+
+        toml_datum_t direction = toml_get(spot_light_component_table, "direction");
+        if (direction.type != TOML_UNKNOWN && read_vector3_from_table(spot_light_component_table, "direction", &spot_light_state->direction) != Ok) {
+            spot_light_component_dispose(spot_light_state);
+            log_err("Actor '%s' has invalid SpotLight.direction; expected [x, y, z]", actor_id);
+            return Err;
+        }
+
+        if (fabsf(spot_light_state->direction.x) < 0.0001f && fabsf(spot_light_state->direction.y) < 0.0001f && fabsf(spot_light_state->direction.z) < 0.0001f) {
+            spot_light_component_dispose(spot_light_state);
+            log_err("Actor '%s' has invalid SpotLight.direction; zero vector is not allowed", actor_id);
+            return Err;
+        }
+
+        toml_datum_t color = toml_get(spot_light_component_table, "color");
+        if (color.type != TOML_UNKNOWN && read_color_rgb_or_rgba(spot_light_component_table, "color", &spot_light_state->color) != Ok) {
+            spot_light_component_dispose(spot_light_state);
+            log_err("Actor '%s' has invalid SpotLight.color; expected [r, g, b] or [r, g, b, a]", actor_id);
+            return Err;
+        }
+
+        float number_value = 0.0f;
+        toml_datum_t intensity = toml_get(spot_light_component_table, "intensity");
+        if (toml_number_to_float(intensity, &number_value) && number_value >= 0.0f)
+            spot_light_state->intensity = number_value;
+
+        toml_datum_t range = toml_get(spot_light_component_table, "range");
+        if (toml_number_to_float(range, &number_value) && number_value > 0.0f)
+            spot_light_state->range = number_value;
+
+        toml_datum_t angle = toml_get(spot_light_component_table, "angle");
+        if (!toml_number_to_float(angle, &number_value)) {
+            toml_datum_t spot_angle = toml_get(spot_light_component_table, "spot_angle");
+            (void)toml_number_to_float(spot_angle, &number_value);
+        }
+        if (number_value > 0.0f)
+            spot_light_state->angle = number_value;
+
+        toml_datum_t enabled = toml_get(spot_light_component_table, "enabled");
+        if (enabled.type == TOML_BOOLEAN)
+            spot_light_state->enabled = enabled.u.boolean ? True : False;
+
+        ComponentDescriptor descriptor = {
+            .name = "SpotLight",
+            .kind = ComponentBuiltin,
+            .initialize = spot_light_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, spot_light_state) != Ok) {
+            spot_light_component_dispose(spot_light_state);
+            log_err("Failed to add spot light component to actor '%s'", actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t direction_light_component_table = {0};
+    if (find_direction_light_component_table(actor_table, &direction_light_component_table)) {
+        Heap direction_light_heap = allocate(1, sizeof(DirectionLightComponentData));
+        DirectionLightComponentData *direction_light_state = (DirectionLightComponentData *)direction_light_heap.pointer;
+        if (!direction_light_state) {
+            log_err("Failed to allocate direction light state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(direction_light_state, 0, sizeof(*direction_light_state));
+        direction_light_state->heap = direction_light_heap;
+        direction_light_state->actor = actor;
+        direction_light_state->direction = (Vector3){0.0f, -1.0f, 0.0f};
+        direction_light_state->color = WHITE;
+        direction_light_state->intensity = 1.0f;
+        direction_light_state->enabled = True;
+
+        toml_datum_t direction = toml_get(direction_light_component_table, "direction");
+        if (direction.type != TOML_UNKNOWN && read_vector3_from_table(direction_light_component_table, "direction", &direction_light_state->direction) != Ok) {
+            direction_light_component_dispose(direction_light_state);
+            log_err("Actor '%s' has invalid DirectionLight.direction; expected [x, y, z]", actor_id);
+            return Err;
+        }
+
+        if (fabsf(direction_light_state->direction.x) < 0.0001f && fabsf(direction_light_state->direction.y) < 0.0001f && fabsf(direction_light_state->direction.z) < 0.0001f) {
+            direction_light_component_dispose(direction_light_state);
+            log_err("Actor '%s' has invalid DirectionLight.direction; zero vector is not allowed", actor_id);
+            return Err;
+        }
+
+        toml_datum_t color = toml_get(direction_light_component_table, "color");
+        if (color.type != TOML_UNKNOWN && read_color_rgb_or_rgba(direction_light_component_table, "color", &direction_light_state->color) != Ok) {
+            direction_light_component_dispose(direction_light_state);
+            log_err("Actor '%s' has invalid DirectionLight.color; expected [r, g, b] or [r, g, b, a]", actor_id);
+            return Err;
+        }
+
+        float number_value = 0.0f;
+        toml_datum_t intensity = toml_get(direction_light_component_table, "intensity");
+        if (toml_number_to_float(intensity, &number_value) && number_value >= 0.0f)
+            direction_light_state->intensity = number_value;
+
+        toml_datum_t enabled = toml_get(direction_light_component_table, "enabled");
+        if (enabled.type == TOML_BOOLEAN)
+            direction_light_state->enabled = enabled.u.boolean ? True : False;
+
+        ComponentDescriptor descriptor = {
+            .name = "DirectionLight",
+            .kind = ComponentBuiltin,
+            .initialize = direction_light_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, direction_light_state) != Ok) {
+            direction_light_component_dispose(direction_light_state);
+            log_err("Failed to add direction light component to actor '%s'", actor_id);
             return Err;
         }
     }

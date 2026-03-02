@@ -205,6 +205,9 @@ static const char *resolve_component_name_alias(const char *component_name) {
     if (strcmp(component_name, "Rigidbody2D") == 0)
         return "Rigidbody";
 
+    if (strcmp(component_name, "DirectionalLight") == 0)
+        return "DirectionLight";
+
     return component_name;
 }
 
@@ -899,7 +902,7 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         return 1;
     }
 
-    if (strcmp(resolved_component, "Rigidbody") == 0 || strcmp(resolved_component, "StaticColor") == 0) {
+    if (strcmp(resolved_component, "Rigidbody") == 0 || strcmp(resolved_component, "StaticColor") == 0 || strcmp(resolved_component, "PointLight") == 0 || strcmp(resolved_component, "SpotLight") == 0 || strcmp(resolved_component, "DirectionLight") == 0) {
         if (!find_actor_rigidbody(actor)) {
             if (strcmp(resolved_component, "Rigidbody") == 0) {
                 lua_pushnil(lua_state);
@@ -910,6 +913,30 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         if (strcmp(resolved_component, "StaticColor") == 0) {
             ActorComponent *static_color_component = find_builtin_component(actor, "StaticColor");
             if (!static_color_component) {
+                lua_pushnil(lua_state);
+                return 1;
+            }
+        }
+
+        if (strcmp(resolved_component, "PointLight") == 0) {
+            ActorComponent *point_light_component = find_builtin_component(actor, "PointLight");
+            if (!point_light_component) {
+                lua_pushnil(lua_state);
+                return 1;
+            }
+        }
+
+        if (strcmp(resolved_component, "SpotLight") == 0) {
+            ActorComponent *spot_light_component = find_builtin_component(actor, "SpotLight");
+            if (!spot_light_component) {
+                lua_pushnil(lua_state);
+                return 1;
+            }
+        }
+
+        if (strcmp(resolved_component, "DirectionLight") == 0) {
+            ActorComponent *direction_light_component = find_builtin_component(actor, "DirectionLight");
+            if (!direction_light_component) {
                 lua_pushnil(lua_state);
                 return 1;
             }

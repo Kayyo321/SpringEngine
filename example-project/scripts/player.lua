@@ -115,6 +115,35 @@ local function set_anim_bool(self, name, value)
 	end
 end
 
+local function configure_player_point_light(self)
+	if not self.get_component then
+		return
+	end
+
+	local collider = self:get_component("Collider")
+	local player_light = self:get_component("PointLight", "player_point_light")
+	if not collider or not player_light then
+		return
+	end
+
+	local width = nil
+	if collider.get_size then
+		width = select(1, collider:get_size())
+	end
+
+	if type(width) == "number" and width > 0.0 and player_light.set_range then
+		player_light:set_range(width * 4.0)
+	end
+
+	if player_light.set_intensity then
+		player_light:set_intensity(6.0)
+	end
+
+	if player_light.set_enabled then
+		player_light:set_enabled(true)
+	end
+end
+
 local function apply_knockback(self, knockback_direction_x)
 	if self.is_dead then
 		return
@@ -161,6 +190,8 @@ function player:start()
 	if DJ.load_sound then
 		DJ.load_sound("assets/Sounds/stomp-sfx.wav", "stomp-sfx", self.stomp_default_volume)
 	end
+
+	configure_player_point_light(self)
 	log_message("player.lua start")
 end
 

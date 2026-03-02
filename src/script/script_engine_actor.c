@@ -12,6 +12,9 @@ static const char *resolve_component_name_alias(const char *component_name) {
     if (strcmp(component_name, "Rigidbody2D") == 0)
         return "Rigidbody";
 
+    if (strcmp(component_name, "DirectionalLight") == 0)
+        return "DirectionLight";
+
     return component_name;
 }
 
@@ -149,6 +152,30 @@ static StaticColorState *find_actor_static_color(Actor *actor) {
         return Null;
 
     return (StaticColorState *)component->data;
+}
+
+static PointLightComponentData *find_actor_point_light(Actor *actor) {
+    ActorComponent *component = find_builtin_component(actor, "PointLight");
+    if (!component)
+        return Null;
+
+    return (PointLightComponentData *)component->data;
+}
+
+static SpotLightComponentData *find_actor_spot_light(Actor *actor) {
+    ActorComponent *component = find_builtin_component(actor, "SpotLight");
+    if (!component)
+        return Null;
+
+    return (SpotLightComponentData *)component->data;
+}
+
+static DirectionLightComponentData *find_actor_direction_light(Actor *actor) {
+    ActorComponent *component = find_builtin_component(actor, "DirectionLight");
+    if (!component)
+        return Null;
+
+    return (DirectionLightComponentData *)component->data;
 }
 
 static int lua_actor_component_static_color_set_position(lua_State *lua_state) {
@@ -1272,6 +1299,641 @@ static int lua_actor_component_animconf_get_flip_x(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_actor_component_point_light_set_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+    const int z_index = using_colon_call ? 4 : 3;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->position.x = (float)luaL_checknumber(lua_state, x_index);
+    state->position.y = (float)luaL_checknumber(lua_state, y_index);
+    state->position.z = (float)luaL_checknumber(lua_state, z_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_point_light_get_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 3;
+    }
+
+    lua_pushnumber(lua_state, state->position.x);
+    lua_pushnumber(lua_state, state->position.y);
+    lua_pushnumber(lua_state, state->position.z);
+    return 3;
+}
+
+static int lua_actor_component_point_light_set_color(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int r_index = using_colon_call ? 2 : 1;
+    const int g_index = using_colon_call ? 3 : 2;
+    const int b_index = using_colon_call ? 4 : 3;
+    const int a_index = using_colon_call ? 5 : 4;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const int red = (int)luaL_checkinteger(lua_state, r_index);
+    const int green = (int)luaL_checkinteger(lua_state, g_index);
+    const int blue = (int)luaL_checkinteger(lua_state, b_index);
+    const int alpha = (int)luaL_checkinteger(lua_state, a_index);
+    if (red < 0 || red > 255 || green < 0 || green > 255 || blue < 0 || blue > 255 || alpha < 0 || alpha > 255) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->color = (Color){
+        (unsigned char)red,
+        (unsigned char)green,
+        (unsigned char)blue,
+        (unsigned char)alpha,
+    };
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_point_light_get_color(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 4;
+    }
+
+    lua_pushinteger(lua_state, state->color.r);
+    lua_pushinteger(lua_state, state->color.g);
+    lua_pushinteger(lua_state, state->color.b);
+    lua_pushinteger(lua_state, state->color.a);
+    return 4;
+}
+
+static int lua_actor_component_point_light_set_intensity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float intensity = (float)luaL_checknumber(lua_state, value_index);
+    if (intensity < 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->intensity = intensity;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_point_light_get_intensity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->intensity);
+    return 1;
+}
+
+static int lua_actor_component_point_light_set_range(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float range = (float)luaL_checknumber(lua_state, value_index);
+    if (range <= 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->range = range;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_point_light_get_range(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->range);
+    return 1;
+}
+
+static int lua_actor_component_point_light_set_enabled(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->enabled = lua_toboolean(lua_state, value_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_point_light_get_enabled(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    PointLightComponentData *state = find_actor_point_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->enabled ? 1 : 0);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_set_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+    const int z_index = using_colon_call ? 4 : 3;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->position.x = (float)luaL_checknumber(lua_state, x_index);
+    state->position.y = (float)luaL_checknumber(lua_state, y_index);
+    state->position.z = (float)luaL_checknumber(lua_state, z_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_get_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 3;
+    }
+
+    lua_pushnumber(lua_state, state->position.x);
+    lua_pushnumber(lua_state, state->position.y);
+    lua_pushnumber(lua_state, state->position.z);
+    return 3;
+}
+
+static int lua_actor_component_spot_light_set_direction(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+    const int z_index = using_colon_call ? 4 : 3;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float x = (float)luaL_checknumber(lua_state, x_index);
+    const float y = (float)luaL_checknumber(lua_state, y_index);
+    const float z = (float)luaL_checknumber(lua_state, z_index);
+    if (fabsf(x) < 0.0001f && fabsf(y) < 0.0001f && fabsf(z) < 0.0001f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->direction = (Vector3){x, y, z};
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_get_direction(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 3;
+    }
+
+    lua_pushnumber(lua_state, state->direction.x);
+    lua_pushnumber(lua_state, state->direction.y);
+    lua_pushnumber(lua_state, state->direction.z);
+    return 3;
+}
+
+static int lua_actor_component_spot_light_set_color(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int r_index = using_colon_call ? 2 : 1;
+    const int g_index = using_colon_call ? 3 : 2;
+    const int b_index = using_colon_call ? 4 : 3;
+    const int a_index = using_colon_call ? 5 : 4;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const int red = (int)luaL_checkinteger(lua_state, r_index);
+    const int green = (int)luaL_checkinteger(lua_state, g_index);
+    const int blue = (int)luaL_checkinteger(lua_state, b_index);
+    const int alpha = (int)luaL_checkinteger(lua_state, a_index);
+    if (red < 0 || red > 255 || green < 0 || green > 255 || blue < 0 || blue > 255 || alpha < 0 || alpha > 255) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->color = (Color){(unsigned char)red, (unsigned char)green, (unsigned char)blue, (unsigned char)alpha};
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_get_color(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 4;
+    }
+
+    lua_pushinteger(lua_state, state->color.r);
+    lua_pushinteger(lua_state, state->color.g);
+    lua_pushinteger(lua_state, state->color.b);
+    lua_pushinteger(lua_state, state->color.a);
+    return 4;
+}
+
+static int lua_actor_component_spot_light_set_intensity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float value = (float)luaL_checknumber(lua_state, value_index);
+    if (value < 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->intensity = value;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_get_intensity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->intensity);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_set_range(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float value = (float)luaL_checknumber(lua_state, value_index);
+    if (value <= 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->range = value;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_get_range(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->range);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_set_angle(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float value = (float)luaL_checknumber(lua_state, value_index);
+    if (value <= 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->angle = value;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_get_angle(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->angle);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_set_enabled(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->enabled = lua_toboolean(lua_state, value_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_spot_light_get_enabled(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    SpotLightComponentData *state = find_actor_spot_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->enabled ? 1 : 0);
+    return 1;
+}
+
+static int lua_actor_component_direction_light_set_direction(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+    const int z_index = using_colon_call ? 4 : 3;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    DirectionLightComponentData *state = find_actor_direction_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float x = (float)luaL_checknumber(lua_state, x_index);
+    const float y = (float)luaL_checknumber(lua_state, y_index);
+    const float z = (float)luaL_checknumber(lua_state, z_index);
+    if (fabsf(x) < 0.0001f && fabsf(y) < 0.0001f && fabsf(z) < 0.0001f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->direction = (Vector3){x, y, z};
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_direction_light_get_direction(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    DirectionLightComponentData *state = find_actor_direction_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 3;
+    }
+
+    lua_pushnumber(lua_state, state->direction.x);
+    lua_pushnumber(lua_state, state->direction.y);
+    lua_pushnumber(lua_state, state->direction.z);
+    return 3;
+}
+
+static int lua_actor_component_direction_light_set_color(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int r_index = using_colon_call ? 2 : 1;
+    const int g_index = using_colon_call ? 3 : 2;
+    const int b_index = using_colon_call ? 4 : 3;
+    const int a_index = using_colon_call ? 5 : 4;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    DirectionLightComponentData *state = find_actor_direction_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const int red = (int)luaL_checkinteger(lua_state, r_index);
+    const int green = (int)luaL_checkinteger(lua_state, g_index);
+    const int blue = (int)luaL_checkinteger(lua_state, b_index);
+    const int alpha = (int)luaL_checkinteger(lua_state, a_index);
+    if (red < 0 || red > 255 || green < 0 || green > 255 || blue < 0 || blue > 255 || alpha < 0 || alpha > 255) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->color = (Color){(unsigned char)red, (unsigned char)green, (unsigned char)blue, (unsigned char)alpha};
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_direction_light_get_color(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    DirectionLightComponentData *state = find_actor_direction_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 4;
+    }
+
+    lua_pushinteger(lua_state, state->color.r);
+    lua_pushinteger(lua_state, state->color.g);
+    lua_pushinteger(lua_state, state->color.b);
+    lua_pushinteger(lua_state, state->color.a);
+    return 4;
+}
+
+static int lua_actor_component_direction_light_set_intensity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    DirectionLightComponentData *state = find_actor_direction_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float value = (float)luaL_checknumber(lua_state, value_index);
+    if (value < 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->intensity = value;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_direction_light_get_intensity(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    DirectionLightComponentData *state = find_actor_direction_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->intensity);
+    return 1;
+}
+
+static int lua_actor_component_direction_light_set_enabled(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    DirectionLightComponentData *state = find_actor_direction_light(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->enabled = lua_toboolean(lua_state, value_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_direction_light_get_enabled(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    DirectionLightComponentData *state = find_actor_direction_light(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushboolean(lua_state, state->enabled ? 1 : 0);
+    return 1;
+}
+
 static int lua_actor_get_component(lua_State *lua_state) {
     const char *actor_id = luaL_checkstring(lua_state, 1);
     const char *requested_component = luaL_checkstring(lua_state, 2);
@@ -1560,6 +2222,167 @@ static int lua_actor_get_component(lua_State *lua_state) {
         lua_pushstring(lua_state, actor_id);
         lua_pushcclosure(lua_state, lua_actor_component_rigidbody_is_grounded, 1);
         lua_setfield(lua_state, -2, "is_grounded");
+
+        return 1;
+    }
+
+    if (strcmp(resolved_component, "PointLight") == 0) {
+        if (!find_actor_point_light(actor)) {
+            lua_pushnil(lua_state);
+            return 1;
+        }
+
+        lua_newtable(lua_state);
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_set_position, 1);
+        lua_setfield(lua_state, -2, "set_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_get_position, 1);
+        lua_setfield(lua_state, -2, "get_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_set_color, 1);
+        lua_setfield(lua_state, -2, "set_color");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_get_color, 1);
+        lua_setfield(lua_state, -2, "get_color");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_set_intensity, 1);
+        lua_setfield(lua_state, -2, "set_intensity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_get_intensity, 1);
+        lua_setfield(lua_state, -2, "get_intensity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_set_range, 1);
+        lua_setfield(lua_state, -2, "set_range");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_get_range, 1);
+        lua_setfield(lua_state, -2, "get_range");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_set_enabled, 1);
+        lua_setfield(lua_state, -2, "set_enabled");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_point_light_get_enabled, 1);
+        lua_setfield(lua_state, -2, "get_enabled");
+
+        return 1;
+    }
+
+    if (strcmp(resolved_component, "SpotLight") == 0) {
+        if (!find_actor_spot_light(actor)) {
+            lua_pushnil(lua_state);
+            return 1;
+        }
+
+        lua_newtable(lua_state);
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_set_position, 1);
+        lua_setfield(lua_state, -2, "set_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_get_position, 1);
+        lua_setfield(lua_state, -2, "get_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_set_direction, 1);
+        lua_setfield(lua_state, -2, "set_direction");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_get_direction, 1);
+        lua_setfield(lua_state, -2, "get_direction");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_set_color, 1);
+        lua_setfield(lua_state, -2, "set_color");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_get_color, 1);
+        lua_setfield(lua_state, -2, "get_color");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_set_intensity, 1);
+        lua_setfield(lua_state, -2, "set_intensity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_get_intensity, 1);
+        lua_setfield(lua_state, -2, "get_intensity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_set_range, 1);
+        lua_setfield(lua_state, -2, "set_range");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_get_range, 1);
+        lua_setfield(lua_state, -2, "get_range");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_set_angle, 1);
+        lua_setfield(lua_state, -2, "set_angle");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_get_angle, 1);
+        lua_setfield(lua_state, -2, "get_angle");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_set_enabled, 1);
+        lua_setfield(lua_state, -2, "set_enabled");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_spot_light_get_enabled, 1);
+        lua_setfield(lua_state, -2, "get_enabled");
+
+        return 1;
+    }
+
+    if (strcmp(resolved_component, "DirectionLight") == 0) {
+        if (!find_actor_direction_light(actor)) {
+            lua_pushnil(lua_state);
+            return 1;
+        }
+
+        lua_newtable(lua_state);
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_direction_light_set_direction, 1);
+        lua_setfield(lua_state, -2, "set_direction");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_direction_light_get_direction, 1);
+        lua_setfield(lua_state, -2, "get_direction");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_direction_light_set_color, 1);
+        lua_setfield(lua_state, -2, "set_color");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_direction_light_get_color, 1);
+        lua_setfield(lua_state, -2, "get_color");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_direction_light_set_intensity, 1);
+        lua_setfield(lua_state, -2, "set_intensity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_direction_light_get_intensity, 1);
+        lua_setfield(lua_state, -2, "get_intensity");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_direction_light_set_enabled, 1);
+        lua_setfield(lua_state, -2, "set_enabled");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_direction_light_get_enabled, 1);
+        lua_setfield(lua_state, -2, "get_enabled");
 
         return 1;
     }
