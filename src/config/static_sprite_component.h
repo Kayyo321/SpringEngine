@@ -125,4 +125,14 @@ typedef struct {
     Heap heap;
 } StaticSpriteState;
 
+typedef struct {
+    Actor *actor;
+    Vector2 position;
+    SpriteAnchor anchor;
+    Vector2 size;
+    float rotation;
+    Color color;
+    Heap heap;
+} StaticColorState;
+
 #endif // STATIC_SPRITE_COMPONENT_H

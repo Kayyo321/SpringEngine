@@ -96,7 +96,18 @@ Vector3 actor_visual_anchor_position(Actor *actor) {
             continue;
 
         if (strcmp(component->descriptor.name, "StaticSprite") != 0)
-            continue;
+            {
+                if (strcmp(component->descriptor.name, "StaticColor") != 0)
+                    continue;
+
+                StaticColorState *color_state = (StaticColorState *)component->data;
+                if (!color_state)
+                    continue;
+
+                anchor_position.x += color_state->position.x;
+                anchor_position.y += color_state->position.y;
+                break;
+            }
 
         StaticSpriteState *sprite_state = (StaticSpriteState *)component->data;
         if (!sprite_state)
@@ -888,16 +899,26 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         return 1;
     }
 
-    if (strcmp(resolved_component, "Rigidbody") == 0) {
+    if (strcmp(resolved_component, "Rigidbody") == 0 || strcmp(resolved_component, "StaticColor") == 0) {
         if (!find_actor_rigidbody(actor)) {
-            lua_pushnil(lua_state);
-            return 1;
+            if (strcmp(resolved_component, "Rigidbody") == 0) {
+                lua_pushnil(lua_state);
+                return 1;
+            }
+        }
+
+        if (strcmp(resolved_component, "StaticColor") == 0) {
+            ActorComponent *static_color_component = find_builtin_component(actor, "StaticColor");
+            if (!static_color_component) {
+                lua_pushnil(lua_state);
+                return 1;
+            }
         }
 
         luaL_requiref(lua_state, "Engine.Actor", luaopen_engine_actor, 1);
         lua_getfield(lua_state, -1, "get_component");
         lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushstring(lua_state, "Rigidbody");
+        lua_pushstring(lua_state, resolved_component);
 
         if (lua_pcall(lua_state, 2, 1, 0) != LUA_OK) {
             lua_pop(lua_state, 2);

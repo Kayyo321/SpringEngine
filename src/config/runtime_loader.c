@@ -46,9 +46,12 @@ static result texture_cache_acquire(const char *resolved_texture_path, Texture2D
 static void texture_cache_release(const char *resolved_texture_path, Texture2D texture);
 static void texture_cache_reset(void);
 static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
+static result static_color_component_initialize(Actor *actor, ActorComponent *component, void *context);
+static void static_color_component_draw(StaticColorState *state, CameraComponentData *active_camera, Actor *active_camera_actor);
 static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor);
 static void animated_sprite_component_dispose(AnimatedSpriteState *state);
 static void static_sprite_component_dispose(StaticSpriteState *state);
+static void static_color_component_dispose(StaticColorState *state);
 static void camera_component_dispose(CameraComponentData *state);
 static void collider_component_dispose(ColliderComponentData *state);
 static void rigidbody_component_dispose(RigidbodyComponentData *state);
@@ -250,6 +253,12 @@ static void refresh_component_actor_backrefs(void) {
             if (strcmp(component->descriptor.name, "StaticSprite") == 0) {
                 StaticSpriteState *state = (StaticSpriteState *)component->data;
                 state->actor = actor;
+                continue;
+            }
+
+            if (strcmp(component->descriptor.name, "StaticColor") == 0) {
+                StaticColorState *state = (StaticColorState *)component->data;
+                state->actor = actor;
             }
         }
     }
@@ -266,6 +275,9 @@ static void dispose_actor_components(Actor *actor) {
 
         if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
             static_sprite_component_dispose((StaticSpriteState *)component->data);
+
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticColor") == 0)
+            static_color_component_dispose((StaticColorState *)component->data);
 
         if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
             animated_sprite_component_dispose((AnimatedSpriteState *)component->data);
@@ -682,6 +694,37 @@ static const char *find_static_sprite_texture(toml_datum_t actor_table, toml_dat
     return Null;
 }
 
+static const toml_datum_t *find_static_color_component_table(toml_datum_t actor_table, toml_datum_t *out_static_color_table) {
+    if (out_static_color_table)
+        *out_static_color_table = (toml_datum_t){0};
+
+    if (actor_table.type != TOML_TABLE || !out_static_color_table)
+        return Null;
+
+    toml_datum_t overrides = toml_get(actor_table, "Overrides");
+    if (overrides.type == TOML_TABLE) {
+        toml_datum_t components = toml_get(overrides, "Components");
+        if (components.type == TOML_TABLE) {
+            toml_datum_t static_color = toml_get(components, "StaticColor");
+            if (static_color.type == TOML_TABLE) {
+                *out_static_color_table = static_color;
+                return out_static_color_table;
+            }
+        }
+    }
+
+    toml_datum_t components = toml_get(actor_table, "Components");
+    if (components.type == TOML_TABLE) {
+        toml_datum_t static_color = toml_get(components, "StaticColor");
+        if (static_color.type == TOML_TABLE) {
+            *out_static_color_table = static_color;
+            return out_static_color_table;
+        }
+    }
+
+    return Null;
+}
+
 static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t actor_table, toml_datum_t *out_animated_sprite_table) {
     if (out_animated_sprite_table)
         *out_animated_sprite_table = (toml_datum_t){0};
@@ -731,6 +774,16 @@ static result static_sprite_component_initialize(Actor *actor, ActorComponent *c
 
     state->attempted_load = False;
     state->loaded = False;
+    return Ok;
+}
+
+static result static_color_component_initialize(Actor *actor, ActorComponent *component, void *context) {
+    (void)actor;
+    (void)context;
+
+    if (!component || !component->data)
+        return Err;
+
     return Ok;
 }
 
@@ -1010,6 +1063,64 @@ static void static_sprite_component_draw(StaticSpriteState *state, CameraCompone
     DrawTexturePro(state->texture, source, destination, anchor, state->rotation + actor_rotation_z, state->tint);
 }
 
+static void static_color_component_draw(StaticColorState *state, CameraComponentData *active_camera, Actor *active_camera_actor) {
+    if (!state)
+        return;
+
+    float actor_x = 0.0f;
+    float actor_y = 0.0f;
+    float actor_scale_x = 1.0f;
+    float actor_scale_y = 1.0f;
+    if (state->actor) {
+        actor_x = state->actor->transform.position.x;
+        actor_y = state->actor->transform.position.y;
+        actor_scale_x = state->actor->transform.scale.x;
+        actor_scale_y = state->actor->transform.scale.y;
+    }
+
+    float destination_x = actor_x + state->position.x;
+    float destination_y = actor_y + state->position.y;
+    float destination_width = state->size.x * actor_scale_x;
+    float destination_height = state->size.y * actor_scale_y;
+
+    if (active_camera && active_camera_actor) {
+        float zoom = 1.0f;
+        if (active_camera->camera.fovy > 0.001f)
+            zoom = 60.0f / active_camera->camera.fovy;
+
+        const float camera_x = active_camera_actor->transform.position.x;
+        const float camera_y = active_camera_actor->transform.position.y;
+
+        destination_x = (destination_x - camera_x) * zoom + ((float)GetScreenWidth() * 0.5f);
+        destination_y = (destination_y - camera_y) * zoom + ((float)GetScreenHeight() * 0.5f);
+        destination_width *= zoom;
+        destination_height *= zoom;
+    }
+
+    Rectangle destination = {
+        destination_x,
+        destination_y,
+        destination_width,
+        destination_height,
+    };
+
+    Vector2 anchor = {
+        state->anchor.offset.x * actor_scale_x,
+        state->anchor.offset.y * actor_scale_y,
+    };
+
+    if (state->anchor.center) {
+        anchor.x = destination.width * 0.5f;
+        anchor.y = destination.height * 0.5f;
+    }
+
+    float actor_rotation_z = 0.0f;
+    if (state->actor)
+        actor_rotation_z = state->actor->transform.rotation_euler.z;
+
+    DrawRectanglePro(destination, anchor, state->rotation + actor_rotation_z, state->color);
+}
+
 static void static_sprite_component_dispose(StaticSpriteState *state) {
     if (!state)
         return;
@@ -1021,6 +1132,14 @@ static void static_sprite_component_dispose(StaticSpriteState *state) {
     }
 
     state->attempted_load = False;
+
+    if (state->heap.pointer)
+        deallocate(state->heap);
+}
+
+static void static_color_component_dispose(StaticColorState *state) {
+    if (!state)
+        return;
 
     if (state->heap.pointer)
         deallocate(state->heap);
@@ -2241,6 +2360,9 @@ static void frame_update(void) {
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
                 static_sprite_component_draw((StaticSpriteState *)component->data, runtime_state.active_camera, runtime_state.active_camera_actor);
 
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticColor") == 0)
+                static_color_component_draw((StaticColorState *)component->data, runtime_state.active_camera, runtime_state.active_camera_actor);
+
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
                 animated_sprite_component_draw((AnimatedSpriteState *)component->data, runtime_state.active_camera, runtime_state.active_camera_actor);
         }
@@ -2268,6 +2390,9 @@ static void dispose_runtime_components(void) {
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
                 static_sprite_component_dispose((StaticSpriteState *)component->data);
+
+            if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticColor") == 0)
+                static_color_component_dispose((StaticColorState *)component->data);
 
             if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
                 animated_sprite_component_dispose((AnimatedSpriteState *)component->data);
@@ -3102,6 +3227,84 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         if (actor_add_component(actor, descriptor, sprite_state) != Ok) {
             static_sprite_component_dispose(sprite_state);
             log_err("Failed to add static sprite component to actor '%s'", actor_id);
+            return Err;
+        }
+    }
+
+    toml_datum_t static_color_table = {0};
+    if (find_static_color_component_table(actor_table, &static_color_table)) {
+        Heap color_heap = allocate(1, sizeof(StaticColorState));
+        StaticColorState *color_state = (StaticColorState *)color_heap.pointer;
+        if (!color_state) {
+            log_err("Failed to allocate static color state for actor '%s'", actor_id);
+            return Err;
+        }
+
+        memset(color_state, 0, sizeof(*color_state));
+        color_state->heap = color_heap;
+        color_state->actor = actor;
+        color_state->position = (Vector2){0.0f, 0.0f};
+        color_state->anchor = (SpriteAnchor){
+            .center = False,
+            .offset = (Vector2){0.0f, 0.0f},
+        };
+        color_state->size = (Vector2){64.0f, 64.0f};
+        color_state->rotation = 0.0f;
+        color_state->color = WHITE;
+
+        toml_datum_t transform = toml_get(actor_table, "Transform");
+        (void)read_xy_array(transform, "position", &color_state->position);
+        if (read_actor_transform_anchor(actor_table, prefab_refs, prefabs_root, &color_state->anchor) != Ok) {
+            static_color_component_dispose(color_state);
+            log_err("Actor '%s' has invalid Transform.anchor; expected [x, y] or \"center\" (actor or prefab Transform)", actor_id);
+            return Err;
+        }
+
+        (void)read_xy_array(static_color_table, "position", &color_state->position);
+
+        toml_datum_t size = toml_get(static_color_table, "size");
+        if (size.type != TOML_UNKNOWN)
+            (void)read_xy_array(static_color_table, "size", &color_state->size);
+        if (color_state->size.x <= 0.0f || color_state->size.y <= 0.0f) {
+            static_color_component_dispose(color_state);
+            log_err("Actor '%s' has invalid StaticColor.size; both dimensions must be > 0", actor_id);
+            return Err;
+        }
+
+        toml_datum_t rotation = toml_get(static_color_table, "rotation");
+        float rotation_value = 0.0f;
+        if (toml_number_to_float(rotation, &rotation_value))
+            color_state->rotation = rotation_value;
+
+        toml_datum_t anchor = toml_get(static_color_table, "anchor");
+        if (anchor.type != TOML_UNKNOWN && read_transform_anchor(static_color_table, &color_state->anchor) != Ok) {
+            static_color_component_dispose(color_state);
+            log_err("Actor '%s' has invalid StaticColor.anchor; expected [x, y] or \"center\"", actor_id);
+            return Err;
+        }
+
+        toml_datum_t color = toml_get(static_color_table, "color");
+        if (color.type == TOML_ARRAY && color.u.arr.size >= 4 &&
+            color.u.arr.elem[0].type == TOML_INT64 && color.u.arr.elem[1].type == TOML_INT64 &&
+            color.u.arr.elem[2].type == TOML_INT64 && color.u.arr.elem[3].type == TOML_INT64) {
+            color_state->color = (Color){
+                (unsigned char)color.u.arr.elem[0].u.int64,
+                (unsigned char)color.u.arr.elem[1].u.int64,
+                (unsigned char)color.u.arr.elem[2].u.int64,
+                (unsigned char)color.u.arr.elem[3].u.int64,
+            };
+        }
+
+        ComponentDescriptor descriptor = {
+            .name = "StaticColor",
+            .kind = ComponentBuiltin,
+            .initialize = static_color_component_initialize,
+            .context = Null,
+        };
+
+        if (actor_add_component(actor, descriptor, color_state) != Ok) {
+            static_color_component_dispose(color_state);
+            log_err("Failed to add static color component to actor '%s'", actor_id);
             return Err;
         }
     }

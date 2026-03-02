@@ -143,6 +143,231 @@ static RigidbodyComponentData *find_actor_rigidbody(Actor *actor) {
     return (RigidbodyComponentData *)component->data;
 }
 
+static StaticColorState *find_actor_static_color(Actor *actor) {
+    ActorComponent *component = find_builtin_component(actor, "StaticColor");
+    if (!component)
+        return Null;
+
+    return (StaticColorState *)component->data;
+}
+
+static int lua_actor_component_static_color_set_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->position.x = (float)luaL_checknumber(lua_state, x_index);
+    state->position.y = (float)luaL_checknumber(lua_state, y_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_static_color_get_position(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 2;
+    }
+
+    lua_pushnumber(lua_state, state->position.x);
+    lua_pushnumber(lua_state, state->position.y);
+    return 2;
+}
+
+static int lua_actor_component_static_color_set_size(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int width_index = using_colon_call ? 2 : 1;
+    const int height_index = using_colon_call ? 3 : 2;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const float width = (float)luaL_checknumber(lua_state, width_index);
+    const float height = (float)luaL_checknumber(lua_state, height_index);
+    if (width <= 0.0f || height <= 0.0f) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->size.x = width;
+    state->size.y = height;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_static_color_get_size(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 2;
+    }
+
+    lua_pushnumber(lua_state, state->size.x);
+    lua_pushnumber(lua_state, state->size.y);
+    return 2;
+}
+
+static int lua_actor_component_static_color_set_anchor(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int x_index = using_colon_call ? 2 : 1;
+    const int y_index = using_colon_call ? 3 : 2;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->anchor.center = False;
+    state->anchor.offset.x = (float)luaL_checknumber(lua_state, x_index);
+    state->anchor.offset.y = (float)luaL_checknumber(lua_state, y_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_static_color_set_anchor_center(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int value_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->anchor.center = lua_toboolean(lua_state, value_index) ? True : False;
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_static_color_get_anchor(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 3;
+    }
+
+    lua_pushboolean(lua_state, state->anchor.center ? 1 : 0);
+    lua_pushnumber(lua_state, state->anchor.offset.x);
+    lua_pushnumber(lua_state, state->anchor.offset.y);
+    return 3;
+}
+
+static int lua_actor_component_static_color_set_rotation(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int rotation_index = using_colon_call ? 2 : 1;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->rotation = (float)luaL_checknumber(lua_state, rotation_index);
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_static_color_get_rotation(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, state->rotation);
+    return 1;
+}
+
+static int lua_actor_component_static_color_set_color(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int r_index = using_colon_call ? 2 : 1;
+    const int g_index = using_colon_call ? 3 : 2;
+    const int b_index = using_colon_call ? 4 : 3;
+    const int a_index = using_colon_call ? 5 : 4;
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    const int red = (int)luaL_checkinteger(lua_state, r_index);
+    const int green = (int)luaL_checkinteger(lua_state, g_index);
+    const int blue = (int)luaL_checkinteger(lua_state, b_index);
+    const int alpha = (int)luaL_checkinteger(lua_state, a_index);
+    if (red < 0 || red > 255 || green < 0 || green > 255 || blue < 0 || blue > 255 || alpha < 0 || alpha > 255) {
+        lua_pushboolean(lua_state, 0);
+        return 1;
+    }
+
+    state->color = (Color){
+        (unsigned char)red,
+        (unsigned char)green,
+        (unsigned char)blue,
+        (unsigned char)alpha,
+    };
+    lua_pushboolean(lua_state, 1);
+    return 1;
+}
+
+static int lua_actor_component_static_color_get_color(lua_State *lua_state) {
+    const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
+
+    Actor *actor = lua_runtime_find_actor(lua_state, actor_id);
+    StaticColorState *state = find_actor_static_color(actor);
+    if (!state) {
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        lua_pushnil(lua_state);
+        return 4;
+    }
+
+    lua_pushinteger(lua_state, state->color.r);
+    lua_pushinteger(lua_state, state->color.g);
+    lua_pushinteger(lua_state, state->color.b);
+    lua_pushinteger(lua_state, state->color.a);
+    return 4;
+}
+
 static int lua_actor_component_collider_set_offset(lua_State *lua_state) {
     const char *actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
     const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
@@ -1153,6 +1378,61 @@ static int lua_actor_get_component(lua_State *lua_state) {
         lua_pushstring(lua_state, actor_id);
         lua_pushcclosure(lua_state, lua_actor_component_collider_overlaps_point, 1);
         lua_setfield(lua_state, -2, "overlaps_point");
+
+        return 1;
+    }
+
+    if (strcmp(resolved_component, "StaticColor") == 0) {
+        if (!find_actor_static_color(actor)) {
+            lua_pushnil(lua_state);
+            return 1;
+        }
+
+        lua_newtable(lua_state);
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_set_position, 1);
+        lua_setfield(lua_state, -2, "set_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_get_position, 1);
+        lua_setfield(lua_state, -2, "get_position");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_set_size, 1);
+        lua_setfield(lua_state, -2, "set_size");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_get_size, 1);
+        lua_setfield(lua_state, -2, "get_size");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_set_anchor, 1);
+        lua_setfield(lua_state, -2, "set_anchor");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_set_anchor_center, 1);
+        lua_setfield(lua_state, -2, "set_anchor_center");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_get_anchor, 1);
+        lua_setfield(lua_state, -2, "get_anchor");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_set_rotation, 1);
+        lua_setfield(lua_state, -2, "set_rotation");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_get_rotation, 1);
+        lua_setfield(lua_state, -2, "get_rotation");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_set_color, 1);
+        lua_setfield(lua_state, -2, "set_color");
+
+        lua_pushstring(lua_state, actor_id);
+        lua_pushcclosure(lua_state, lua_actor_component_static_color_get_color, 1);
+        lua_setfield(lua_state, -2, "get_color");
 
         return 1;
     }

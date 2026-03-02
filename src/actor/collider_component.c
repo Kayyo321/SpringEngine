@@ -106,6 +106,21 @@ static void resolve_visual_sprite_offset(const Actor *actor, float *out_x, float
             *out_y = state->position.y - origin_y;
             return;
         }
+
+        if (strcmp(component->descriptor.name, "StaticColor") == 0) {
+            const StaticColorState *state = (const StaticColorState *)component->data;
+            float origin_x = state->anchor.offset.x * actor_scale_x;
+            float origin_y = state->anchor.offset.y * actor_scale_y;
+
+            if (state->anchor.center) {
+                origin_x = (state->size.x * actor_scale_x) * 0.5f;
+                origin_y = (state->size.y * actor_scale_y) * 0.5f;
+            }
+
+            *out_x = state->position.x - origin_x;
+            *out_y = state->position.y - origin_y;
+            return;
+        }
     }
 }
 
