@@ -3,6 +3,7 @@
 
 #include "config/runtime_loader.h"
 #include "maker.h"
+#include "packer.h"
 
 #include <string.h>
 
@@ -14,6 +15,8 @@ static void log_usage(void) {
     log_msg("  --make-script <project_root> <script_name> | -ms <project_root> <script_name>");
     log_msg("  --make-scene <project_root> <scene_name> | -msc <project_root> <scene_name>");
     log_msg("  --make-ui-doc <project_root> <doc_name> | -mud <project_root> <doc_name>");
+    log_msg("  --pack <source_directory> <archive.targame> | -p <source_directory> <archive.targame>");
+    log_msg("  --unpack <archive.targame> <destination_directory> | -u <archive.targame> <destination_directory>");
 }
 
 static void version(void) {
@@ -112,6 +115,40 @@ void run_program(void) {
 
         if (make_ui_document(project_root, doc_name) != Ok) {
             log_err("Failed to create UI doc '%s' at path '%s'", doc_name, project_root);
+            quit(Err);
+        }
+
+        return;
+    }
+
+    if (arg_equ(1, "--pack") || arg_equ(1, "-p")) {
+        if (program.argc < 4) {
+            log_err("Missing source directory and archive path for --pack command");
+            quit(Err);
+        }
+
+        const char *source_directory = program.argv[2];
+        const char *archive_path = program.argv[3];
+
+        if (pack_directory_to_targame(source_directory, archive_path) != Ok) {
+            log_err("Failed to pack directory '%s' into archive '%s'", source_directory, archive_path);
+            quit(Err);
+        }
+
+        return;
+    }
+
+    if (arg_equ(1, "--unpack") || arg_equ(1, "-u")) {
+        if (program.argc < 4) {
+            log_err("Missing archive path and destination directory for --unpack command");
+            quit(Err);
+        }
+
+        const char *archive_path = program.argv[2];
+        const char *destination_directory = program.argv[3];
+
+        if (unpack_targame_to_directory(archive_path, destination_directory) != Ok) {
+            log_err("Failed to unpack archive '%s' into directory '%s'", archive_path, destination_directory);
             quit(Err);
         }
 
