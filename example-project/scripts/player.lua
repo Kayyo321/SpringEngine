@@ -24,6 +24,7 @@ local player = {
 	death_animation_delay = 0.80,
 	death_linger_duration = 0.35,
 	death_animation_elapsed = 0.0,
+	death_pose_locked = false,
 	death_fade_duration = 0.45,
 	death_fade_elapsed = 0.0,
 	death_scene_requested = false,
@@ -168,6 +169,7 @@ function player:start()
 	self.is_dead = false
 	self.is_dying_transition = false
 	self.death_animation_elapsed = 0.0
+	self.death_pose_locked = false
 	self.death_fade_elapsed = 0.0
 	self.death_scene_requested = false
 	self.hud_hidden_for_transition = false
@@ -185,6 +187,7 @@ function player:start()
 	end
 
 	set_anim_bool(self, "dead", false)
+	set_anim_bool(self, "dead_hold", false)
 	set_anim_bool(self, "hurt", false)
 
 	if DJ.load_sound then
@@ -203,6 +206,11 @@ function player:update()
 		set_anim_bool(self, "dead", true)
 
 		self.death_animation_elapsed = self.death_animation_elapsed + delta_time
+		if not self.death_pose_locked and self.death_animation_elapsed >= self.death_animation_delay then
+			self.death_pose_locked = true
+			set_anim_bool(self, "dead_hold", true)
+		end
+
 		if self.death_animation_elapsed < (self.death_animation_delay + self.death_linger_duration) then
 			return
 		end
@@ -371,6 +379,7 @@ function player:die()
 	self.is_dying_transition = true
 	self.hurt_timer = 0.0
 	self.death_animation_elapsed = 0.0
+	self.death_pose_locked = false
 	self.death_fade_elapsed = 0.0
 	self.death_scene_requested = false
 
@@ -380,6 +389,7 @@ function player:die()
 
 	set_anim_bool(self, "hurt", false)
 	set_anim_bool(self, "dead", true)
+	set_anim_bool(self, "dead_hold", false)
 	log_message("Player has died.")
 end
 
