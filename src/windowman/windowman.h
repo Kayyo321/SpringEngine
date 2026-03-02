@@ -36,6 +36,7 @@ extern const WindowConfig DefaultWindowConfig;
 
 result open_window(WindowConfig config);
 boolean update_window(UpdateCallback callback);
+void set_window_clear_color(Color color);
 void close_window(void);
 
 #ifdef TESTING

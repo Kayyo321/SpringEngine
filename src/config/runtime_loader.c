@@ -38,6 +38,7 @@ result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_posit
 static result resolve_prefab_path_from_ref(const char *prefab_ref_id, char *out_prefab_path, usize out_prefab_path_size);
 static result load_scene_runtime(const char *scene_path);
 static void process_pending_scene_load(void);
+static void apply_resolved_scene_lighting(const LightingSceneSelection *selection);
 static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t actor_table, toml_datum_t *out_animated_sprite_table);
 static result animated_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static result collider_component_initialize(Actor *actor, ActorComponent *component, void *context);
@@ -45,6 +46,8 @@ static result rigidbody_component_initialize(Actor *actor, ActorComponent *compo
 static result texture_cache_acquire(const char *resolved_texture_path, Texture2D *out_texture);
 static void texture_cache_release(const char *resolved_texture_path, Texture2D texture);
 static void texture_cache_reset(void);
+static unsigned char scale_color_channel(unsigned char channel, float multiplier);
+static Color apply_global_light_to_color(Color color);
 static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
 static result static_color_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static void static_color_component_draw(StaticColorState *state, CameraComponentData *active_camera, Actor *active_camera_actor);
@@ -218,6 +221,32 @@ static boolean toml_number_to_float(toml_datum_t value, float *out_number) {
     }
 
     return False;
+}
+
+static unsigned char scale_color_channel(unsigned char channel, float multiplier) {
+    if (multiplier <= 0.0f)
+        return 0;
+
+    float scaled = (float)channel * multiplier;
+    if (scaled < 0.0f)
+        scaled = 0.0f;
+    if (scaled > 255.0f)
+        scaled = 255.0f;
+
+    return (unsigned char)scaled;
+}
+
+static Color apply_global_light_to_color(Color color) {
+    const float multiplier = runtime_state.scene_light_multiplier;
+    if (multiplier == 1.0f)
+        return color;
+
+    return (Color){
+        scale_color_channel(color.r, multiplier),
+        scale_color_channel(color.g, multiplier),
+        scale_color_channel(color.b, multiplier),
+        color.a,
+    };
 }
 
 Actor *find_actor_by_id(const char *actor_id) {
@@ -1060,7 +1089,7 @@ static void static_sprite_component_draw(StaticSpriteState *state, CameraCompone
     if (state->actor)
         actor_rotation_z = state->actor->transform.rotation_euler.z;
 
-    DrawTexturePro(state->texture, source, destination, anchor, state->rotation + actor_rotation_z, state->tint);
+    DrawTexturePro(state->texture, source, destination, anchor, state->rotation + actor_rotation_z, apply_global_light_to_color(state->tint));
 }
 
 static void static_color_component_draw(StaticColorState *state, CameraComponentData *active_camera, Actor *active_camera_actor) {
@@ -1781,7 +1810,7 @@ static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraCom
     if (state->actor)
         actor_rotation_z = state->actor->transform.rotation_euler.z;
 
-    DrawTexturePro(sheet->texture, source, destination, anchor, state->rotation + actor_rotation_z, state->tint);
+    DrawTexturePro(sheet->texture, source, destination, anchor, state->rotation + actor_rotation_z, apply_global_light_to_color(state->tint));
 }
 
 static void animated_sprite_component_dispose(AnimatedSpriteState *state) {
@@ -3352,6 +3381,7 @@ static result load_scene_runtime(const char *scene_path) {
     boolean scene_ok = False;
     boolean scene_data_ok = False;
     boolean autoload_ok = False;
+    LightingSceneSelection resolved_lighting = {0};
 
     char resolved_scene_path[PATH_MAX] = {0};
     if (join_path(runtime_state.scenes_root, scene_path, resolved_scene_path, sizeof(resolved_scene_path)) != Ok) {
@@ -3374,6 +3404,10 @@ static result load_scene_runtime(const char *scene_path) {
         log_err("Scene config '%s' is missing Scene.data_file", resolved_scene_path);
         goto fail;
     }
+
+    lighting_scene_selection_reset(&resolved_lighting);
+    if (lighting_resolve_scene_selection(&runtime_state.lighting_global_config, scene_toml.toptab, &resolved_lighting) != Ok)
+        goto fail;
 
     char scene_directory[PATH_MAX] = {0};
     if (parent_directory(resolved_scene_path, scene_directory, sizeof(scene_directory)) != Ok) {
@@ -3423,6 +3457,9 @@ static result load_scene_runtime(const char *scene_path) {
         goto fail;
     }
 
+    runtime_state.lighting_selection = resolved_lighting;
+    apply_resolved_scene_lighting(&runtime_state.lighting_selection);
+
     log_msg("Loaded scene '%s'", resolved_scene_path);
 
     if (autoload_ok)
@@ -3462,6 +3499,32 @@ static void process_pending_scene_load(void) {
 
     if (load_scene_runtime(scene_path) != Ok)
         log_err("Failed to switch to scene '%s'", scene_path);
+}
+
+static void apply_resolved_scene_lighting(const LightingSceneSelection *selection) {
+    if (!selection || !selection->has_lighting)
+        return;
+
+    runtime_state.scene_light_multiplier = selection->global_light_multiplier;
+    if (runtime_state.scene_light_multiplier < 0.0f)
+        runtime_state.scene_light_multiplier = 0.0f;
+
+    if (selection->has_clear_color) {
+        Color clear_color = {
+            selection->clear_r,
+            selection->clear_g,
+            selection->clear_b,
+            selection->clear_a,
+        };
+        set_window_clear_color(clear_color);
+    }
+
+    log_msg(
+        "Applied lighting schema '%s' from '%s'%s (global_multiplier=%.2f)",
+        selection->schema_name,
+        selection->file_ref,
+        selection->has_blend ? " (blend requested)" : "",
+        runtime_state.scene_light_multiplier);
 }
 
 static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab, const char *prefabs_root) {
@@ -3625,9 +3688,15 @@ result run_project_runtime(const char *project_path) {
     runtime_state.has_pending_scene_load = False;
     runtime_state.pending_scene_path[0] = '\0';
     runtime_state.current_scene_path[0] = '\0';
+    runtime_state.scene_light_multiplier = 1.0f;
     runtime_state.ui_runtime = Null;
+    lighting_global_config_reset(&runtime_state.lighting_global_config);
+    lighting_scene_selection_reset(&runtime_state.lighting_selection);
 
     if (cache_autoload_actor_ids(project_toml.toptab) != Ok)
+        goto fail;
+
+    if (lighting_load_global_config(project_path, &runtime_state.lighting_global_config) != Ok)
         goto fail;
 
     runtime_state.dj_enabled = contains_autoload_actor_id("global_audio");
@@ -3684,6 +3753,9 @@ result run_project_runtime(const char *project_path) {
     runtime_state.pending_scene_path[0] = '\0';
     runtime_state.has_pending_scene_load = False;
     runtime_state.autoload_actor_count = 0;
+    runtime_state.scene_light_multiplier = 1.0f;
+    lighting_global_config_reset(&runtime_state.lighting_global_config);
+    lighting_scene_selection_reset(&runtime_state.lighting_selection);
 
     if (project_ok)
         toml_free(project_toml);
@@ -3719,6 +3791,9 @@ fail:
         runtime_state.pending_scene_path[0] = '\0';
         runtime_state.has_pending_scene_load = False;
         runtime_state.autoload_actor_count = 0;
+        runtime_state.scene_light_multiplier = 1.0f;
+        lighting_global_config_reset(&runtime_state.lighting_global_config);
+        lighting_scene_selection_reset(&runtime_state.lighting_selection);
     }
 
     if (project_ok)

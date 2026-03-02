@@ -43,6 +43,7 @@ TARGET := $(TEST_TARGET)
 BUILD_OBJDIR := $(OBJDIR)/test
 endif
 OBJ := $(patsubst $(SRCDIR)/%.c,$(BUILD_OBJDIR)/%.o,$(SRC))
+DEP := $(OBJ:.o=.d)
 
 SRC_INCLUDE_DIRS := $(shell find $(SRCDIR) -type d 2>/dev/null)
 LIB_INCLUDE_DIRS := \
@@ -104,6 +105,8 @@ endif
 
 .PHONY: all debug clean clean-test fclean re test check-allocators prepare-lua check-raylib
 
+-include $(DEP)
+
 ASAN_SYMBOLIZER := $(shell command -v llvm-symbolizer 2>/dev/null)
 ifeq ($(ASAN_SYMBOLIZER),)
 ASAN_SYMBOLIZER := $(shell command -v addr2line 2>/dev/null)
@@ -163,13 +166,14 @@ $(TOMLC17_STATIC_LIB):
 
 $(BUILD_OBJDIR)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
 $(BINDIR):
 	@mkdir -p $@
 
 clean:
 	@find . -type f -name '*.o' -delete
+	@find . -type f -name '*.d' -delete
 	@find $(OBJDIR) -type d -empty -delete 2>/dev/null || true
 	@rm -rf logs
 

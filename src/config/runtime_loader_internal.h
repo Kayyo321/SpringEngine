@@ -3,6 +3,8 @@
 
 #include "runtime_loader.h"
 
+#include "lighting_config.h"
+
 #include "actor/actor.h"
 #include "actor/camera_component.h"
 #include "dj/dj.h"
@@ -44,12 +46,15 @@ typedef struct {
     usize pending_prefab_instantiation_count;
     usize prefab_copy_counter;
     char project_root[PATH_MAX];
+    float scene_light_multiplier;
     char scenes_root[PATH_MAX];
     char prefabs_root[PATH_MAX];
     char ui_root[PATH_MAX];
     char autoload_data_path[PATH_MAX];
     char current_scene_path[PATH_MAX];
     char pending_scene_path[PATH_MAX];
+    LightingGlobalConfig lighting_global_config;
+    LightingSceneSelection lighting_selection;
     char autoload_actor_ids[RuntimeMaxAutoloadActors][RuntimeMaxAutoloadActorIdLength];
     PendingPrefabInstantiation pending_prefab_instantiations[RuntimeMaxPendingPrefabInstantiations];
     UiRuntime *ui_runtime;

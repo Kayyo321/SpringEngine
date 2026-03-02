@@ -188,6 +188,8 @@ static result make_default_project_files(const char *project_root, const char *p
 	char autoload_path[PATH_MAX] = {0};
 	char scene_path[PATH_MAX] = {0};
 	char scene_data_path[PATH_MAX] = {0};
+	char global_lighting_path[PATH_MAX] = {0};
+	char default_lighting_path[PATH_MAX] = {0};
 
 	if (join_path(project_root, "springengine.conf", springengine_conf_path, sizeof(springengine_conf_path)) != Ok)
 		return Err;
@@ -198,6 +200,10 @@ static result make_default_project_files(const char *project_root, const char *p
 	if (join_path(project_root, "starting_scene.scene.conf", scene_path, sizeof(scene_path)) != Ok)
 		return Err;
 	if (join_path(project_root, "starting_scene.dat.conf", scene_data_path, sizeof(scene_data_path)) != Ok)
+		return Err;
+	if (join_path(project_root, "global.lighting.conf", global_lighting_path, sizeof(global_lighting_path)) != Ok)
+		return Err;
+	if (join_path(project_root, "lighting/default.lighting.conf", default_lighting_path, sizeof(default_lighting_path)) != Ok)
 		return Err;
 
 	char springengine_conf[4096] = {0};
@@ -257,8 +263,46 @@ static result make_default_project_files(const char *project_root, const char *p
 		"title = \"Starting Scene\"\n"
 		"data_file = \"starting_scene.dat.conf\"\n"
 		"\n"
+		"[Scene.Lighting]\n"
+		"file = \"default.lighting.conf\"\n"
+		"schema = \"GameplayDay\"\n"
+		"\n"
 		"[Scene.Load]\n"
 		"actors = [\"main_camera\"]\n";
+
+	const char *global_lighting_conf =
+		"[LightingGlobal]\n"
+		"schema = 1\n"
+		"active_profile = \"default\"\n"
+		"allow_missing_scene_lighting = false\n"
+		"\n"
+		"[LightingGlobal.Paths]\n"
+		"lighting_dir = \"./lighting\"\n"
+		"\n"
+		"[LightingGlobal.Defaults]\n"
+		"file = \"default.lighting.conf\"\n"
+		"schema = \"GameplayDay\"\n"
+		"\n"
+		"[[LightingGlobal.SceneMap]]\n"
+		"scene_id = \"starting_scene\"\n"
+		"file = \"default.lighting.conf\"\n"
+		"default_schema = \"GameplayDay\"\n";
+
+	const char *default_lighting_conf =
+		"[Lighting]\n"
+		"schema = 1\n"
+		"id = \"default\"\n"
+		"default_schema = \"GameplayDay\"\n"
+		"\n"
+		"[Schema.GameplayDay.Ambient]\n"
+		"mode = \"flat\"\n"
+		"color = [90, 110, 140]\n"
+		"intensity = 0.75\n"
+		"\n"
+		"[Schema.GameplayNight.Ambient]\n"
+		"mode = \"flat\"\n"
+		"color = [12, 16, 28]\n"
+		"intensity = 0.20\n";
 
 	const char *scene_data_conf =
 		"[Data]\n"
@@ -290,6 +334,10 @@ static result make_default_project_files(const char *project_root, const char *p
 		return Err;
 	if (write_new_file(scene_data_path, scene_data_conf) != Ok)
 		return Err;
+	if (write_new_file(global_lighting_path, global_lighting_conf) != Ok)
+		return Err;
+	if (write_new_file(default_lighting_path, default_lighting_conf) != Ok)
+		return Err;
 
 	return Ok;
 }
@@ -310,6 +358,7 @@ result make_project(const char *path_to_put_it, const char *project_name) {
 	char sounds_dir[PATH_MAX] = {0};
 	char sprites_dir[PATH_MAX] = {0};
 	char ui_dir[PATH_MAX] = {0};
+	char lighting_dir[PATH_MAX] = {0};
 
 	if (join_path(project_root, "scripts", scripts_dir, sizeof(scripts_dir)) != Ok)
 		return Err;
@@ -322,6 +371,8 @@ result make_project(const char *path_to_put_it, const char *project_name) {
 	if (join_path(assets_dir, "sprites", sprites_dir, sizeof(sprites_dir)) != Ok)
 		return Err;
 	if (join_path(project_root, "ui", ui_dir, sizeof(ui_dir)) != Ok)
+		return Err;
+	if (join_path(project_root, "lighting", lighting_dir, sizeof(lighting_dir)) != Ok)
 		return Err;
 
 	if (ensure_directory_recursive(project_root) != Ok)
@@ -337,6 +388,8 @@ result make_project(const char *path_to_put_it, const char *project_name) {
 	if (ensure_directory_recursive(sprites_dir) != Ok)
 		return Err;
 	if (ensure_directory_recursive(ui_dir) != Ok)
+		return Err;
+	if (ensure_directory_recursive(lighting_dir) != Ok)
 		return Err;
 
 	if (make_default_project_files(project_root, project_name) != Ok)

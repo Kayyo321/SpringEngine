@@ -140,6 +140,10 @@ boolean update_window(UpdateCallback callback) {
     return True;
 }
 
+void set_window_clear_color(Color color) {
+    current_config.clear_color = color;
+}
+
 void close_window(void) {
 #ifdef TESTING
     ensure_hooks();
