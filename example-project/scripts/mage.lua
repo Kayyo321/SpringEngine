@@ -166,7 +166,7 @@ local function hit_player(self, current_x, current_y, overlapped_player_id)
     local player_script = get_player_script(self, overlapped_player_id)
     if player_script and player_script.call then
         local damage = math.random(self.hit_damage_min, self.hit_damage_max)
-        local damage_called = player_script.call("take_damage", damage)
+        local damage_called = player_script.call("take_damage", damage, current_x)
         if not damage_called then
             log_message("mage.lua hit_player failed to call player.take_damage")
         end

@@ -12,11 +12,18 @@ local player = {
 	move_speed = 120.0,
 	jump_force = 78.0 * 14.0,
 	jump_gravity_scale = 5.0,
+	hurt_duration = 0.30,
+	knockback_force = 900.0,
+	knockback_vertical_bias = -0.35,
 	stomp_default_volume = 0.1,
 	stomp_channel_volume = 0.1,
 	facing_x = 1.0,
+	hurt_timer = 0.0,
 	is_dead = false,
 	is_dying_transition = false,
+	death_animation_delay = 0.80,
+	death_linger_duration = 0.35,
+	death_animation_elapsed = 0.0,
 	death_fade_duration = 0.45,
 	death_fade_elapsed = 0.0,
 	death_scene_requested = false,
@@ -93,14 +100,45 @@ local function get_delta_time()
 	return Time.delta_time()
 end
 
+local function get_anim_conf(self)
+	if not self.get_component then
+		return nil
+	end
+
+	return self.get_component("AnimConf")
+end
+
+local function set_anim_bool(self, name, value)
+	local anim_conf = get_anim_conf(self)
+	if anim_conf and anim_conf.set then
+		anim_conf.set(name, value and true or false)
+	end
+end
+
+local function apply_knockback(self, knockback_direction_x)
+	if self.is_dead then
+		return
+	end
+
+	if Rigidbody.apply_force then
+		Rigidbody.apply_force(
+			knockback_direction_x,
+			self.knockback_vertical_bias,
+			self.knockback_force
+		)
+	end
+end
+
 function player:awake()
 	log_message("player.lua awake")
 end
 
 function player:start()
 	self.facing_x = 1.0
+	self.hurt_timer = 0.0
 	self.is_dead = false
 	self.is_dying_transition = false
+	self.death_animation_elapsed = 0.0
 	self.death_fade_elapsed = 0.0
 	self.death_scene_requested = false
 	self.hud_hidden_for_transition = false
@@ -117,6 +155,9 @@ function player:start()
 		Rigidbody.set_gravity_scale(self.jump_gravity_scale)
 	end
 
+	set_anim_bool(self, "dead", false)
+	set_anim_bool(self, "hurt", false)
+
 	if DJ.load_sound then
 		DJ.load_sound("assets/Sounds/stomp-sfx.wav", "stomp-sfx", self.stomp_default_volume)
 	end
@@ -124,8 +165,18 @@ function player:start()
 end
 
 function player:update()
+	local delta_time = get_delta_time()
+
 	if self.is_dead and self.is_dying_transition then
-		self.death_fade_elapsed = self.death_fade_elapsed + get_delta_time()
+		set_anim_bool(self, "hurt", false)
+		set_anim_bool(self, "dead", true)
+
+		self.death_animation_elapsed = self.death_animation_elapsed + delta_time
+		if self.death_animation_elapsed < (self.death_animation_delay + self.death_linger_duration) then
+			return
+		end
+
+		self.death_fade_elapsed = self.death_fade_elapsed + delta_time
 		local t = self.death_fade_elapsed / self.death_fade_duration
 		if t > 1.0 then
 			t = 1.0
@@ -159,10 +210,21 @@ function player:update()
 		return
 	end
 
-	local delta_time = get_delta_time()
+	if self.hurt_timer > 0.0 then
+		self.hurt_timer = math.max(0.0, self.hurt_timer - delta_time)
+		if self.hurt_timer <= 0.0 then
+			set_anim_bool(self, "hurt", false)
+		end
+	end
+
+	local is_hurt = self.hurt_timer > 0.0
 	local move_x = read_move_input()
+	if is_hurt then
+		move_x = 0.0
+	end
+
 	local run_multiplier = 1.0
-	if Input.accepted and Input.accepted("Run") then
+	if not is_hurt and Input.accepted and Input.accepted("Run") then
 		run_multiplier = 2.0
 	end
 
@@ -176,7 +238,7 @@ function player:update()
 		self.facing_x = 1.0
 	end
 
-	local anim_conf = self.get_component and self.get_component("AnimConf") or nil
+	local anim_conf = get_anim_conf(self)
 	if anim_conf and anim_conf.set then
 		anim_conf.set("moving", is_moving)
 	end
@@ -205,7 +267,7 @@ function player:update()
 		is_grounded = Rigidbody.is_grounded()
 	end
 
-	if jump_pressed and is_grounded and Rigidbody.apply_force then
+	if not is_hurt and jump_pressed and is_grounded and Rigidbody.apply_force then
 		Rigidbody.apply_force(0.0, -1.0, self.jump_force)
 		play_stomp_sfx()
 	end
@@ -227,12 +289,39 @@ function player:on_destroy()
 	log_message("player.lua on_destroy")
 end
 
-function player:take_damage(amount) 
-	self.health = self.health - amount
+function player:take_damage(amount, source_x)
+	if self.is_dead then
+		return
+	end
+
+	local final_damage = tonumber(amount) or 0.0
+	if final_damage <= 0.0 then
+		return
+	end
+
+	self.health = self.health - final_damage
+	self.health = math.max(self.health, 0.0)
 	local stats = get_hud_stats()
 	stats.player_health = self.health
 	stats.player_max_health = math.max(stats.player_max_health or self.health, self.health)
 	log_message("Player took damage, health now: " .. tostring(self.health))
+
+	local knockback_direction_x = -self.facing_x
+	if Transform.get_position and type(source_x) == "number" then
+		local player_x = Transform.get_position()
+		if player_x and player_x < source_x then
+			knockback_direction_x = -1.0
+		else
+			knockback_direction_x = 1.0
+		end
+	end
+
+	if self.health > 0.0 then
+		self.hurt_timer = self.hurt_duration
+		set_anim_bool(self, "hurt", true)
+	end
+
+	apply_knockback(self, knockback_direction_x)
 
 	if self.health <= 0.0 then
 		self:die()
@@ -246,8 +335,17 @@ function player:die()
 
 	self.is_dead = true
 	self.is_dying_transition = true
+	self.hurt_timer = 0.0
+	self.death_animation_elapsed = 0.0
 	self.death_fade_elapsed = 0.0
 	self.death_scene_requested = false
+
+	if Rigidbody.set_velocity then
+		Rigidbody.set_velocity(0.0, 0.0)
+	end
+
+	set_anim_bool(self, "hurt", false)
+	set_anim_bool(self, "dead", true)
 	log_message("Player has died.")
 end
 
