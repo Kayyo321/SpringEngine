@@ -30,6 +30,20 @@ local mage = {
     cached_player_script_actor_id = nil,
 }
 
+local function get_hud_stats()
+    if type(_G.__springengine_hud_stats) ~= "table" then
+        _G.__springengine_hud_stats = {
+            started_at = Time.elapsed_time(),
+            player_health = 100.0,
+            player_max_health = 100.0,
+            mages_spawned = 0,
+            mages_cleared = 0,
+        }
+    end
+
+    return _G.__springengine_hud_stats
+end
+
 local function log_message(message)
     if Engine.log then
         Engine.log(message)
@@ -271,6 +285,8 @@ function mage:update()
 end
 
 function mage:on_destroy()
+    local stats = get_hud_stats()
+    stats.mages_cleared = (stats.mages_cleared or 0) + 1
     log_message("mage.lua on_destroy")
 end
 

@@ -9,6 +9,20 @@ local mage_spawner = {
     spawn_timer = 0.0,
 }
 
+local function get_hud_stats()
+    if type(_G.__springengine_hud_stats) ~= "table" then
+        _G.__springengine_hud_stats = {
+            started_at = Time.elapsed_time(),
+            player_health = 100.0,
+            player_max_health = 100.0,
+            mages_spawned = 0,
+            mages_cleared = 0,
+        }
+    end
+
+    return _G.__springengine_hud_stats
+end
+
 local function log_message(message)
     if Engine.log then
         Engine.log(message)
@@ -28,11 +42,17 @@ local function spawn_mage(self)
     end
 
     local spawned_id = spawned_actor.id or "<unknown>"
+    local stats = get_hud_stats()
+    stats.mages_spawned = (stats.mages_spawned or 0) + 1
     log_message("mage_spawner: spawned " .. spawned_id)
 end
 
 function mage_spawner:start()
     self.spawn_timer = self.initial_delay
+    local stats = get_hud_stats()
+    stats.started_at = Time.elapsed_time()
+    stats.mages_spawned = 0
+    stats.mages_cleared = 0
     log_message("mage_spawner.lua start")
 end
 

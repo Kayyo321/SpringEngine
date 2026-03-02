@@ -13,6 +13,20 @@ local player = {
 	facing_x = 1.0,
 }
 
+local function get_hud_stats()
+	if type(_G.__springengine_hud_stats) ~= "table" then
+		_G.__springengine_hud_stats = {
+			started_at = Time.elapsed_time(),
+			player_health = 100.0,
+			player_max_health = 100.0,
+			mages_spawned = 0,
+			mages_cleared = 0,
+		}
+	end
+
+	return _G.__springengine_hud_stats
+end
+
 local function log_message(message)
 	if Engine.log then
 		Engine.log(message)
@@ -48,6 +62,10 @@ end
 
 function player:start()
 	self.facing_x = 1.0
+
+	local stats = get_hud_stats()
+	stats.player_max_health = self.health
+	stats.player_health = self.health
 
 	if Rigidbody.set_velocity then
 		Rigidbody.set_velocity(0.0, 0.0)
@@ -134,6 +152,9 @@ end
 
 function player:take_damage(amount) 
 	self.health = self.health - amount
+	local stats = get_hud_stats()
+	stats.player_health = self.health
+	stats.player_max_health = math.max(stats.player_max_health or self.health, self.health)
 	log_message("Player took damage, health now: " .. tostring(self.health))
 
 	if self.health <= 0.0 then
