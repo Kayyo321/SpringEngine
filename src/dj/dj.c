@@ -408,6 +408,8 @@ static int next_music_channel(const DJ *dj) {
 DJ init_dj(void) {
     DJ dj = {0};
 
+    SetTraceLogLevel(LOG_NONE);
+
     if (!IsAudioDeviceReady())
         InitAudioDevice();
 

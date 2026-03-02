@@ -86,11 +86,14 @@ result open_window(WindowConfig config) {
 #ifdef TESTING
     ensure_hooks();
 
+    SetTraceLogLevel(LOG_NONE);
+
     hooks.init_window((int)config.width, (int)config.height, config.title);
     hooks.set_window_state(config.resizable ? FLAG_WINDOW_RESIZABLE : 0);
 
     if (!hooks.is_window_ready()) {
 #else
+    SetTraceLogLevel(LOG_NONE);
     InitWindow(config.width, config.height, config.title);
     SetWindowState(config.resizable ? FLAG_WINDOW_RESIZABLE : 0);
 

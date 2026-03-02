@@ -18,8 +18,8 @@ local function log_message(message)
 end
 
 local function spawn_mage(self)
-    self.spawn_interval = self.spawn_interval - math.random() * 2.0
-    self.spawn_interval = math.max(1.5, self.spawn_interval)
+    self.spawn_interval = self.spawn_interval - math.random()
+    self.spawn_interval = math.max(3.5, self.spawn_interval)
 
     local spawned_actor = Scene.instantiate_prefab(self.prefab_id)
     if not spawned_actor then
