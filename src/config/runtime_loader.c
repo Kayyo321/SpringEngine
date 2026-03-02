@@ -42,6 +42,9 @@ static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t act
 static result animated_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static result collider_component_initialize(Actor *actor, ActorComponent *component, void *context);
 static result rigidbody_component_initialize(Actor *actor, ActorComponent *component, void *context);
+static result texture_cache_acquire(const char *resolved_texture_path, Texture2D *out_texture);
+static void texture_cache_release(const char *resolved_texture_path, Texture2D texture);
+static void texture_cache_reset(void);
 static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
 static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor);
 static void animated_sprite_component_dispose(AnimatedSpriteState *state);
@@ -58,6 +61,139 @@ static const float RuntimePhysicsGravityY = 240.0f;
 enum {
     RuntimeMaxActorScriptComponents = 16,
 };
+
+typedef struct {
+    char resolved_texture_path[PATH_MAX];
+    Texture2D texture;
+    usize ref_count;
+} SharedTextureEntry;
+
+static Heap shared_texture_entries_heap = {0};
+static SharedTextureEntry *shared_texture_entries = 0;
+static usize shared_texture_entry_count = 0;
+static usize shared_texture_entry_capacity = 0;
+
+static result ensure_shared_texture_capacity(usize required_capacity) {
+    if (required_capacity <= shared_texture_entry_capacity)
+        return Ok;
+
+    usize next_capacity = shared_texture_entry_capacity == 0 ? 8 : shared_texture_entry_capacity * 2;
+    while (next_capacity < required_capacity)
+        next_capacity *= 2;
+
+    const usize next_size = next_capacity * sizeof(SharedTextureEntry);
+    if (!shared_texture_entries) {
+        shared_texture_entries_heap = allocate(next_capacity, sizeof(SharedTextureEntry));
+        shared_texture_entries = (SharedTextureEntry *)shared_texture_entries_heap.pointer;
+        if (!shared_texture_entries)
+            return Err;
+    } else {
+        shared_texture_entries_heap = reallocate(shared_texture_entries_heap, next_size);
+        shared_texture_entries = (SharedTextureEntry *)shared_texture_entries_heap.pointer;
+        if (!shared_texture_entries)
+            return Err;
+    }
+
+    if (next_capacity > shared_texture_entry_capacity) {
+        memset(shared_texture_entries + shared_texture_entry_capacity, 0, (next_capacity - shared_texture_entry_capacity) * sizeof(SharedTextureEntry));
+    }
+
+    shared_texture_entry_capacity = next_capacity;
+    return Ok;
+}
+
+static int find_shared_texture_index(const char *resolved_texture_path) {
+    if (!resolved_texture_path || resolved_texture_path[0] == '\0')
+        return -1;
+
+    for (usize index = 0; index < shared_texture_entry_count; ++index) {
+        if (strcmp(shared_texture_entries[index].resolved_texture_path, resolved_texture_path) == 0)
+            return (int)index;
+    }
+
+    return -1;
+}
+
+static result texture_cache_acquire(const char *resolved_texture_path, Texture2D *out_texture) {
+    if (!resolved_texture_path || resolved_texture_path[0] == '\0' || !out_texture)
+        return Err;
+
+    const int cached_index = find_shared_texture_index(resolved_texture_path);
+    if (cached_index >= 0) {
+        SharedTextureEntry *entry = &shared_texture_entries[cached_index];
+        entry->ref_count++;
+        *out_texture = entry->texture;
+        return Ok;
+    }
+
+    Texture2D loaded_texture = LoadTexture(resolved_texture_path);
+    if (loaded_texture.id == 0)
+        return Err;
+
+    if (ensure_shared_texture_capacity(shared_texture_entry_count + 1) != Ok) {
+        UnloadTexture(loaded_texture);
+        return Err;
+    }
+
+    SharedTextureEntry *entry = &shared_texture_entries[shared_texture_entry_count++];
+    memset(entry, 0, sizeof(*entry));
+    if (snprintf(entry->resolved_texture_path, sizeof(entry->resolved_texture_path), "%s", resolved_texture_path) >= (int)sizeof(entry->resolved_texture_path)) {
+        UnloadTexture(loaded_texture);
+        shared_texture_entry_count--;
+        return Err;
+    }
+
+    entry->texture = loaded_texture;
+    entry->ref_count = 1;
+
+    *out_texture = loaded_texture;
+    return Ok;
+}
+
+static void texture_cache_release(const char *resolved_texture_path, Texture2D texture) {
+    if (!resolved_texture_path || resolved_texture_path[0] == '\0') {
+        if (texture.id != 0)
+            UnloadTexture(texture);
+        return;
+    }
+
+    const int cached_index = find_shared_texture_index(resolved_texture_path);
+    if (cached_index < 0) {
+        if (texture.id != 0)
+            UnloadTexture(texture);
+        return;
+    }
+
+    SharedTextureEntry *entry = &shared_texture_entries[cached_index];
+    if (entry->ref_count > 1) {
+        entry->ref_count--;
+        return;
+    }
+
+    UnloadTexture(entry->texture);
+
+    const usize last_index = shared_texture_entry_count - 1;
+    if ((usize)cached_index < last_index)
+        shared_texture_entries[cached_index] = shared_texture_entries[last_index];
+
+    memset(&shared_texture_entries[last_index], 0, sizeof(SharedTextureEntry));
+    shared_texture_entry_count--;
+}
+
+static void texture_cache_reset(void) {
+    for (usize index = 0; index < shared_texture_entry_count; ++index) {
+        if (shared_texture_entries[index].texture.id != 0)
+            UnloadTexture(shared_texture_entries[index].texture);
+    }
+
+    if (shared_texture_entries_heap.pointer)
+        deallocate(shared_texture_entries_heap);
+
+    shared_texture_entries_heap = NullHeap;
+    shared_texture_entries = Null;
+    shared_texture_entry_count = 0;
+    shared_texture_entry_capacity = 0;
+}
 
 typedef struct {
     const char *module_path;
@@ -805,8 +941,7 @@ static void static_sprite_component_draw(StaticSpriteState *state, CameraCompone
             return;
 
         state->attempted_load = True;
-        state->texture = LoadTexture(state->resolved_texture_path);
-        if (state->texture.id == 0) {
+        if (texture_cache_acquire(state->resolved_texture_path, &state->texture) != Ok) {
             log_err("Failed to load static sprite texture '%s'", state->resolved_texture_path);
             return;
         }
@@ -876,7 +1011,8 @@ static void static_sprite_component_dispose(StaticSpriteState *state) {
         return;
 
     if (state->loaded) {
-        UnloadTexture(state->texture);
+        texture_cache_release(state->resolved_texture_path, state->texture);
+        state->texture = (Texture2D){0};
         state->loaded = False;
     }
 
@@ -1057,8 +1193,7 @@ static result animated_sprite_ensure_sheet_loaded(AnimatedSpriteState *state, in
         return Err;
 
     sheet->attempted_load = True;
-    sheet->texture = LoadTexture(sheet->resolved_texture_path);
-    if (sheet->texture.id == 0) {
+    if (texture_cache_acquire(sheet->resolved_texture_path, &sheet->texture) != Ok) {
         log_err("Failed to load animated sprite sheet '%s'", sheet->resolved_texture_path);
         return Err;
     }
@@ -1529,7 +1664,8 @@ static void animated_sprite_component_dispose(AnimatedSpriteState *state) {
     for (int sheet_index = 0; sheet_index < state->sheet_count; ++sheet_index) {
         AnimatedSpriteSheet *sheet = &state->sheets[sheet_index];
         if (sheet->loaded) {
-            UnloadTexture(sheet->texture);
+            texture_cache_release(sheet->resolved_texture_path, sheet->texture);
+            sheet->texture = (Texture2D){0};
             sheet->loaded = False;
         }
 
@@ -3322,6 +3458,8 @@ result run_project_runtime(const char *project_path) {
         runtime_state.dj_enabled = False;
     }
 
+    texture_cache_reset();
+
     if (window_opened)
         close_window();
 
@@ -3354,6 +3492,8 @@ fail:
             dispose_dj(&runtime_state.dj);
             runtime_state.dj_enabled = False;
         }
+
+        texture_cache_reset();
 
         if (window_opened)
             close_window();
