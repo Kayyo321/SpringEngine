@@ -1,5 +1,6 @@
 #include "actor.h"
 
+#include <stdio.h>
 #include <string.h>
 
 void actor_transform_reset(Actor *actor) {
@@ -9,6 +10,30 @@ void actor_transform_reset(Actor *actor) {
     actor->transform.position = (ActorVector3){0.0f, 0.0f, 0.0f};
     actor->transform.rotation_euler = (ActorVector3){0.0f, 0.0f, 0.0f};
     actor->transform.scale = (ActorVector3){1.0f, 1.0f, 1.0f};
+}
+
+void actor_capture_previous_transform(Actor *actor) {
+    if (!actor)
+        return;
+
+    actor->previous_transform = actor->transform;
+}
+
+result actor_set_parent(Actor *actor, const char *parent_id) {
+    if (!actor)
+        return Err;
+
+    actor->has_parent = False;
+    actor->parent_id[0] = '\0';
+
+    if (!parent_id || parent_id[0] == '\0')
+        return Ok;
+
+    if (snprintf(actor->parent_id, sizeof(actor->parent_id), "%s", parent_id) >= (int)sizeof(actor->parent_id))
+        return Err;
+
+    actor->has_parent = True;
+    return Ok;
 }
 
 static result ensure_actor_component_capacity(Actor *actor, usize required_capacity) {
@@ -59,7 +84,10 @@ void actor_init(Actor *actor, char *id, boolean enabled, int layer) {
     actor->layer = layer;
     actor->tag_count = 0;
     memset(actor->tags, 0, sizeof(actor->tags));
+    actor->has_parent = False;
+    actor->parent_id[0] = '\0';
     actor_transform_reset(actor);
+    actor_capture_previous_transform(actor);
     actor->components_heap = NullHeap;
     actor->components = Null;
     actor->component_count = 0;

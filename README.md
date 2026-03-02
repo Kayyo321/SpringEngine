@@ -141,6 +141,7 @@ For practical verification, run `make test` and inspect `logs/log0-last.log` for
 - See `docs/config-system-vision.md` for the full `.conf`-driven architecture (project config, scenes, actor data, prefabs, and persistence model).
 - See `docs/ui-system-vision.md` for a matching config-driven UI architecture (themes, documents, widget trees, bindings, and runtime lifecycle).
 - See `docs/lighting-system-vision.md` for scene-driven lighting architecture (`global.lighting.conf`, per-scene `*.lighting.conf`, and `lighting.Schema` resolution at scene load).
+- See `docs/child-actor-system-vision.md` for hierarchical actor architecture (nested parent-child actor trees with transform/rigidbody inheritance).
 
 ## tomlc17 Setup
 

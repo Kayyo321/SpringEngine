@@ -9,6 +9,7 @@ typedef struct ActorComponent ActorComponent;
 enum {
     ActorMaxTags = 16,
     ActorMaxTagLength = 64,
+    ActorMaxParentIdLength = 128,
 };
 
 typedef struct {
@@ -52,7 +53,10 @@ struct Actor {
     int layer;
     char tags[ActorMaxTags][ActorMaxTagLength];
     usize tag_count;
+    boolean has_parent;
+    char parent_id[ActorMaxParentIdLength];
     ActorTransform transform;
+    ActorTransform previous_transform;
 
     Heap components_heap;
     ActorComponent *components;
@@ -86,6 +90,8 @@ void actor_dispose(Actor *actor);
 result actor_add_component(Actor *actor, ComponentDescriptor descriptor, void *data);
 result actor_initialize_components(Actor *actor);
 void actor_transform_reset(Actor *actor);
+void actor_capture_previous_transform(Actor *actor);
+result actor_set_parent(Actor *actor, const char *parent_id);
 
 void actor_registry_init(ActorRegistry *registry);
 void actor_registry_dispose(ActorRegistry *registry);

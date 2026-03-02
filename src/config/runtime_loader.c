@@ -28,6 +28,10 @@ static result parse_toml_file(const char *path, toml_result_t *out_parsed);
 static result load_autoload_actors(toml_datum_t autoload_toptab);
 static result load_scene_actors(toml_datum_t scene_toptab, toml_datum_t data_toptab, const char *prefabs_root);
 static result instantiate_actor_from_table(const char *actor_id, toml_datum_t actor_table, toml_datum_t prefab_refs, const char *prefabs_root, const char *success_log_label);
+static int find_actor_index_by_id(const char *actor_id);
+static result validate_actor_parent_links(void);
+static void apply_parent_transform_deltas(void);
+static void capture_actor_previous_transforms(void);
 Actor *find_actor_by_id(const char *actor_id);
 static void refresh_component_actor_backrefs(void);
 static void dispose_actor_components(Actor *actor);
@@ -263,6 +267,183 @@ Actor *find_actor_by_id(const char *actor_id) {
     }
 
     return Null;
+}
+
+static int find_actor_index_by_id(const char *actor_id) {
+    if (!actor_id || actor_id[0] == '\0')
+        return -1;
+
+    for (usize index = 0; index < runtime_state.actor_registry.actor_count; ++index) {
+        Actor *actor = &runtime_state.actor_registry.actors[index];
+        if (!actor->id)
+            continue;
+
+        if (strcmp(actor->id, actor_id) == 0)
+            return (int)index;
+    }
+
+    return -1;
+}
+
+static result validate_actor_parent_links(void) {
+    const usize actor_count = runtime_state.actor_registry.actor_count;
+    if (actor_count == 0)
+        return Ok;
+
+    Heap state_heap = allocate(actor_count, sizeof(unsigned char));
+    unsigned char *state = (unsigned char *)state_heap.pointer;
+    if (!state)
+        return Err;
+
+    memset(state, 0, actor_count * sizeof(unsigned char));
+
+    for (usize index = 0; index < actor_count; ++index) {
+        Actor *actor = &runtime_state.actor_registry.actors[index];
+        if (!actor->has_parent)
+            continue;
+
+        if (!actor->parent_id[0]) {
+            log_err("Actor '%s' has empty parent id", actor->id ? actor->id : "<unknown>");
+            deallocate(state_heap);
+            return Err;
+        }
+
+        if (actor->id && strcmp(actor->id, actor->parent_id) == 0) {
+            log_err("Actor '%s' cannot be its own parent", actor->id);
+            deallocate(state_heap);
+            return Err;
+        }
+
+        if (find_actor_index_by_id(actor->parent_id) < 0) {
+            log_err("Actor '%s' references missing parent '%s'", actor->id ? actor->id : "<unknown>", actor->parent_id);
+            deallocate(state_heap);
+            return Err;
+        }
+    }
+
+    for (usize start_index = 0; start_index < actor_count; ++start_index) {
+        if (state[start_index] == 2)
+            continue;
+
+        int cursor = (int)start_index;
+        while (cursor >= 0) {
+            if (state[cursor] == 1) {
+                Actor *cycle_actor = &runtime_state.actor_registry.actors[cursor];
+                log_err("Actor hierarchy cycle detected at '%s'", cycle_actor->id ? cycle_actor->id : "<unknown>");
+                deallocate(state_heap);
+                return Err;
+            }
+
+            if (state[cursor] == 2)
+                break;
+
+            state[cursor] = 1;
+            Actor *actor = &runtime_state.actor_registry.actors[cursor];
+            if (!actor->has_parent)
+                break;
+
+            cursor = find_actor_index_by_id(actor->parent_id);
+        }
+
+        cursor = (int)start_index;
+        while (cursor >= 0 && state[cursor] == 1) {
+            state[cursor] = 2;
+            Actor *actor = &runtime_state.actor_registry.actors[cursor];
+            if (!actor->has_parent)
+                break;
+
+            cursor = find_actor_index_by_id(actor->parent_id);
+        }
+    }
+
+    deallocate(state_heap);
+    return Ok;
+}
+
+static result apply_parent_transform_delta_recursive(int actor_index, unsigned char *visiting, unsigned char *applied, usize actor_count) {
+    if (actor_index < 0 || (usize)actor_index >= actor_count)
+        return Err;
+
+    if (applied[actor_index])
+        return Ok;
+
+    if (visiting[actor_index])
+        return Err;
+
+    visiting[actor_index] = 1;
+    Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+    if (actor->has_parent && actor->parent_id[0] != '\0') {
+        const int parent_index = find_actor_index_by_id(actor->parent_id);
+        if (parent_index >= 0) {
+            if (apply_parent_transform_delta_recursive(parent_index, visiting, applied, actor_count) != Ok) {
+                visiting[actor_index] = 0;
+                return Err;
+            }
+
+            Actor *parent = &runtime_state.actor_registry.actors[parent_index];
+            const ActorVector3 parent_delta_position = {
+                parent->transform.position.x - parent->previous_transform.position.x,
+                parent->transform.position.y - parent->previous_transform.position.y,
+                parent->transform.position.z - parent->previous_transform.position.z,
+            };
+            const ActorVector3 parent_delta_rotation = {
+                parent->transform.rotation_euler.x - parent->previous_transform.rotation_euler.x,
+                parent->transform.rotation_euler.y - parent->previous_transform.rotation_euler.y,
+                parent->transform.rotation_euler.z - parent->previous_transform.rotation_euler.z,
+            };
+
+            actor->transform.position.x += parent_delta_position.x;
+            actor->transform.position.y += parent_delta_position.y;
+            actor->transform.position.z += parent_delta_position.z;
+
+            actor->transform.rotation_euler.x += parent_delta_rotation.x;
+            actor->transform.rotation_euler.y += parent_delta_rotation.y;
+            actor->transform.rotation_euler.z += parent_delta_rotation.z;
+
+            if (fabsf(parent->previous_transform.scale.x) > 0.0001f)
+                actor->transform.scale.x *= parent->transform.scale.x / parent->previous_transform.scale.x;
+            if (fabsf(parent->previous_transform.scale.y) > 0.0001f)
+                actor->transform.scale.y *= parent->transform.scale.y / parent->previous_transform.scale.y;
+            if (fabsf(parent->previous_transform.scale.z) > 0.0001f)
+                actor->transform.scale.z *= parent->transform.scale.z / parent->previous_transform.scale.z;
+        }
+    }
+
+    visiting[actor_index] = 0;
+    applied[actor_index] = 1;
+    return Ok;
+}
+
+static void apply_parent_transform_deltas(void) {
+    const usize actor_count = runtime_state.actor_registry.actor_count;
+    if (actor_count == 0)
+        return;
+
+    Heap visiting_heap = allocate(actor_count, sizeof(unsigned char));
+    Heap applied_heap = allocate(actor_count, sizeof(unsigned char));
+    unsigned char *visiting = (unsigned char *)visiting_heap.pointer;
+    unsigned char *applied = (unsigned char *)applied_heap.pointer;
+    if (!visiting || !applied) {
+        if (visiting_heap.pointer)
+            deallocate(visiting_heap);
+        if (applied_heap.pointer)
+            deallocate(applied_heap);
+        return;
+    }
+
+    memset(visiting, 0, actor_count * sizeof(unsigned char));
+    memset(applied, 0, actor_count * sizeof(unsigned char));
+
+    for (usize index = 0; index < actor_count; ++index)
+        (void)apply_parent_transform_delta_recursive((int)index, visiting, applied, actor_count);
+
+    deallocate(visiting_heap);
+    deallocate(applied_heap);
+}
+
+static void capture_actor_previous_transforms(void) {
+    for (usize index = 0; index < runtime_state.actor_registry.actor_count; ++index)
+        actor_capture_previous_transform(&runtime_state.actor_registry.actors[index]);
 }
 
 static void refresh_component_actor_backrefs(void) {
@@ -2326,6 +2507,7 @@ static void frame_update(void) {
         }
     }
 
+    apply_parent_transform_deltas();
     rigidbody_component_resolve_collisions();
 
     process_pending_actor_destroys();
@@ -2355,8 +2537,10 @@ static void frame_update(void) {
             ++enabled_actor_count;
     }
 
-    if (enabled_actor_count == 0)
+    if (enabled_actor_count == 0) {
+        capture_actor_previous_transforms();
         return;
+    }
 
     Heap draw_order_heap = allocate(enabled_actor_count, sizeof(Actor *));
     Actor **draw_order = (Actor **)draw_order_heap.pointer;
@@ -2406,6 +2590,7 @@ static void frame_update(void) {
         ui_runtime_draw(runtime_state.ui_runtime);
 
     deallocate(draw_order_heap);
+    capture_actor_previous_transforms();
 }
 
 static void dispose_runtime_components(void) {
@@ -2819,6 +3004,21 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
     if (read_actor_tags(actor_table, actor) != Ok) {
         log_err("Actor '%s' has invalid tags; expected tags=[\"tag\", ...]", actor_id);
         return Err;
+    }
+
+    toml_datum_t parent_id = toml_get(actor_table, "parent");
+    if (parent_id.type != TOML_UNKNOWN) {
+        if (parent_id.type != TOML_STRING || !parent_id.u.s || parent_id.u.s[0] == '\0') {
+            log_err("Actor '%s' has invalid parent; expected non-empty string actor id", actor_id);
+            return Err;
+        }
+
+        if (actor_set_parent(actor, parent_id.u.s) != Ok) {
+            log_err("Actor '%s' has parent id that is too long", actor_id);
+            return Err;
+        }
+    } else {
+        (void)actor_set_parent(actor, Null);
     }
 
     for (usize script_index = 0; script_index < script_module_count; ++script_index) {
@@ -3341,7 +3541,12 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
     if (actor_initialize_components(actor) != Ok)
         return Err;
 
-    log_msg("%s '%s'", success_log_label, actor_id);
+    actor_capture_previous_transform(actor);
+
+    if (actor->has_parent)
+        log_msg("%s '%s' (parent='%s')", success_log_label, actor_id, actor->parent_id);
+    else
+        log_msg("%s '%s'", success_log_label, actor_id);
     return Ok;
 }
 
@@ -3442,6 +3647,9 @@ static result load_scene_runtime(const char *scene_path) {
         goto fail;
 
     if (load_scene_actors(scene_toml.toptab, scene_data_toml.toptab, runtime_state.prefabs_root) != Ok)
+        goto fail;
+
+    if (validate_actor_parent_links() != Ok)
         goto fail;
 
     if (runtime_state.ui_runtime) {
