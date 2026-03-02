@@ -150,6 +150,23 @@ end
 
 `Scene.load(...)` expects a path relative to `Paths.scenes_dir` (or absolute path).
 
+### DJ API (Lua)
+
+`Engine.DJ` currently supports:
+
+- `load_sound(path, alias, default_volume?)`
+- `play_sound(alias)`
+- `restart_sound(channel)`
+- `stop_sound(channel)`
+- `set_sound_channel_volume(channel, volume)`
+- `get_sound_channel_volume(channel)`
+- `load_music(path, alias, default_volume?)`
+- `play_music(alias, loop)`
+- `restart_music(channel)`
+- `stop_music(channel)`
+- `set_music_channel_volume(channel, volume)`
+- `get_music_channel_volume(channel)`
+
 ### UI API (Lua)
 
 `Engine.UI` currently supports:

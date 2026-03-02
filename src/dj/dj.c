@@ -8,6 +8,16 @@ enum {
     MapMinCapacity = 8,
 };
 
+static float clamp_volume(float volume) {
+    if (volume < 0.0f)
+        return 0.0f;
+
+    if (volume > 1.0f)
+        return 1.0f;
+
+    return volume;
+}
+
 static usize hash_str(const char *key) {
     const unsigned char *bytes = (const unsigned char *)key;
 
@@ -96,7 +106,7 @@ static result ensure_sound_map_capacity(StringSoundMap *map, usize needed) {
     return Ok;
 }
 
-static Sound *sound_map_get(StringSoundMap *map, const char *key) {
+static StringSoundMapBucket *sound_map_get_bucket(StringSoundMap *map, const char *key) {
     if (!map || !key || map->cap == 0 || !map->buckets)
         return Null;
 
@@ -108,7 +118,7 @@ static Sound *sound_map_get(StringSoundMap *map, const char *key) {
             return Null;
 
         if (map->buckets[slot].hash == hash && strcmp(map->buckets[slot].key, key) == 0)
-            return &map->buckets[slot].sound;
+            return &map->buckets[slot];
 
         slot = (slot + 1) & (map->cap - 1);
     }
@@ -116,9 +126,11 @@ static Sound *sound_map_get(StringSoundMap *map, const char *key) {
     return Null;
 }
 
-static result sound_map_set(StringSoundMap *map, const char *key, Sound sound) {
+static result sound_map_set(StringSoundMap *map, const char *key, Sound sound, float default_volume) {
     if (!map || !key)
         return Err;
+
+    const float clamped_default_volume = clamp_volume(default_volume);
 
     if (ensure_sound_map_capacity(map, map->len + 1) != Ok)
         return Err;
@@ -133,6 +145,7 @@ static result sound_map_set(StringSoundMap *map, const char *key, Sound sound) {
         if (map->buckets[slot].hash == hash && strcmp(map->buckets[slot].key, key) == 0) {
             UnloadSound(map->buckets[slot].sound);
             map->buckets[slot].sound = sound;
+            map->buckets[slot].default_volume = clamped_default_volume;
             return Ok;
         }
 
@@ -151,6 +164,7 @@ static result sound_map_set(StringSoundMap *map, const char *key, Sound sound) {
     map->buckets[slot].key_heap = next_key_heap;
     map->buckets[slot].key = next_key;
     map->buckets[slot].sound = sound;
+    map->buckets[slot].default_volume = clamped_default_volume;
     map->buckets[slot].hash = hash;
     map->buckets[slot].filled = True;
     ++map->len;
@@ -232,7 +246,7 @@ static result ensure_music_map_capacity(StringMusicMap *map, usize needed) {
     return Ok;
 }
 
-static Music *music_map_get(StringMusicMap *map, const char *key) {
+static StringMusicMapBucket *music_map_get_bucket(StringMusicMap *map, const char *key) {
     if (!map || !key || map->cap == 0 || !map->buckets)
         return Null;
 
@@ -244,7 +258,7 @@ static Music *music_map_get(StringMusicMap *map, const char *key) {
             return Null;
 
         if (map->buckets[slot].hash == hash && strcmp(map->buckets[slot].key, key) == 0)
-            return &map->buckets[slot].music;
+            return &map->buckets[slot];
 
         slot = (slot + 1) & (map->cap - 1);
     }
@@ -252,9 +266,11 @@ static Music *music_map_get(StringMusicMap *map, const char *key) {
     return Null;
 }
 
-static result music_map_set(StringMusicMap *map, const char *key, Music music) {
+static result music_map_set(StringMusicMap *map, const char *key, Music music, float default_volume) {
     if (!map || !key)
         return Err;
+
+    const float clamped_default_volume = clamp_volume(default_volume);
 
     if (ensure_music_map_capacity(map, map->len + 1) != Ok)
         return Err;
@@ -269,6 +285,7 @@ static result music_map_set(StringMusicMap *map, const char *key, Music music) {
         if (map->buckets[slot].hash == hash && strcmp(map->buckets[slot].key, key) == 0) {
             UnloadMusicStream(map->buckets[slot].music);
             map->buckets[slot].music = music;
+            map->buckets[slot].default_volume = clamped_default_volume;
             return Ok;
         }
 
@@ -287,6 +304,7 @@ static result music_map_set(StringMusicMap *map, const char *key, Music music) {
     map->buckets[slot].key_heap = next_key_heap;
     map->buckets[slot].key = next_key;
     map->buckets[slot].music = music;
+    map->buckets[slot].default_volume = clamped_default_volume;
     map->buckets[slot].hash = hash;
     map->buckets[slot].filled = True;
     ++map->len;
@@ -362,6 +380,7 @@ static void reset_sound_channel(DJ *dj, int channel) {
     dj->sound_channels[channel].alias_heap = NullHeap;
     dj->sound_channels[channel].alias = Null;
     dj->sound_channels[channel].sound = (Sound){0};
+    dj->sound_channels[channel].volume = 1.0f;
     dj->sound_channels[channel].empty = True;
 }
 
@@ -378,6 +397,7 @@ static void reset_music_channel(DJ *dj, int channel) {
     dj->music_channels[channel].alias_heap = NullHeap;
     dj->music_channels[channel].alias = Null;
     dj->music_channels[channel].music = (Music){0};
+    dj->music_channels[channel].volume = 1.0f;
     dj->music_channels[channel].empty = True;
 }
 
@@ -415,7 +435,9 @@ DJ init_dj(void) {
 
     for (int i = 0; i < ChannelMax; ++i) {
         dj.sound_channels[i].empty = True;
+        dj.sound_channels[i].volume = 1.0f;
         dj.music_channels[i].empty = True;
+        dj.music_channels[i].volume = 1.0f;
     }
     
     return dj;
@@ -450,24 +472,28 @@ void dispose_dj(DJ *dj) {
     clear_sound_aliases(dj);
 }
 
-void load_sound_source_as(DJ *dj, const char *path, const char *alias) {
+void load_sound_source_as_with_volume(DJ *dj, const char *path, const char *alias, float default_volume) {
     if (!dj || !path || !alias)
         return;
 
     Sound sound = LoadSound(path);
 
     stop_sound_channels_for_alias(dj, alias);
-    if (sound_map_set(&dj->sound_aliases, alias, sound) != Ok) {
+    if (sound_map_set(&dj->sound_aliases, alias, sound, default_volume) != Ok) {
         UnloadSound(sound);
         log_err("Failed to register sound alias '%s'", alias);
     }
+}
+
+void load_sound_source_as(DJ *dj, const char *path, const char *alias) {
+    load_sound_source_as_with_volume(dj, path, alias, 1.0f);
 }
 
 int play_sound(DJ *dj, const char *alias) {
     if (!dj || !alias)
         return -1;
 
-    Sound *registered = sound_map_get(&dj->sound_aliases, alias);
+    StringSoundMapBucket *registered = sound_map_get_bucket(&dj->sound_aliases, alias);
     if (!registered) {
         log_warn("Sound alias '%s' is not registered", alias);
         return -1;
@@ -479,7 +505,8 @@ int play_sound(DJ *dj, const char *alias) {
         return -1;
     }
 
-    Sound sound = *registered;
+    Sound sound = registered->sound;
+    const float volume = clamp_volume(registered->default_volume);
 
     Heap alias_heap = NullHeap;
     char *alias_copy = dup_str(alias, &alias_heap);
@@ -491,7 +518,9 @@ int play_sound(DJ *dj, const char *alias) {
     dj->sound_channels[channel].sound = sound;
     dj->sound_channels[channel].alias_heap = alias_heap;
     dj->sound_channels[channel].alias = alias_copy;
+    dj->sound_channels[channel].volume = volume;
     dj->sound_channels[channel].empty = False;
+    SetSoundVolume(sound, volume);
     PlaySound(sound);
     return channel;
 }
@@ -500,6 +529,7 @@ void restart_sound(DJ *dj, int channel) {
     if (!dj || !is_valid_channel(channel) || dj->sound_channels[channel].empty)
         return;
 
+    SetSoundVolume(dj->sound_channels[channel].sound, dj->sound_channels[channel].volume);
     StopSound(dj->sound_channels[channel].sound);
     PlaySound(dj->sound_channels[channel].sound);
 }
@@ -511,24 +541,44 @@ void stop_sound(DJ *dj, int channel) {
     reset_sound_channel(dj, channel);
 }
 
-void load_music_source_as(DJ *dj, const char *path, const char *alias) {
+void set_sound_channel_volume(DJ *dj, int channel, float volume) {
+    if (!dj || !is_valid_channel(channel) || dj->sound_channels[channel].empty)
+        return;
+
+    const float clamped_volume = clamp_volume(volume);
+    dj->sound_channels[channel].volume = clamped_volume;
+    SetSoundVolume(dj->sound_channels[channel].sound, clamped_volume);
+}
+
+float get_sound_channel_volume(const DJ *dj, int channel) {
+    if (!dj || !is_valid_channel(channel) || dj->sound_channels[channel].empty)
+        return -1.0f;
+
+    return dj->sound_channels[channel].volume;
+}
+
+void load_music_source_as_with_volume(DJ *dj, const char *path, const char *alias, float default_volume) {
     if (!dj || !path || !alias)
         return;
 
     Music music = LoadMusicStream(path);
 
     stop_music_channels_for_alias(dj, alias);
-    if (music_map_set(&dj->music_aliases, alias, music) != Ok) {
+    if (music_map_set(&dj->music_aliases, alias, music, default_volume) != Ok) {
         UnloadMusicStream(music);
         log_err("Failed to register music alias '%s'", alias);
     }
+}
+
+void load_music_source_as(DJ *dj, const char *path, const char *alias) {
+    load_music_source_as_with_volume(dj, path, alias, 1.0f);
 }
 
 int play_music(DJ *dj, const char *alias, boolean loop) {
     if (!dj || !alias)
         return -1;
 
-    Music *registered = music_map_get(&dj->music_aliases, alias);
+    StringMusicMapBucket *registered = music_map_get_bucket(&dj->music_aliases, alias);
     if (!registered) {
         log_warn("Music alias '%s' is not registered", alias);
         return -1;
@@ -540,7 +590,8 @@ int play_music(DJ *dj, const char *alias, boolean loop) {
         return -1;
     }
 
-    Music music = *registered;
+    Music music = registered->music;
+    const float volume = clamp_volume(registered->default_volume);
 
     Heap alias_heap = NullHeap;
     char *alias_copy = dup_str(alias, &alias_heap);
@@ -553,7 +604,9 @@ int play_music(DJ *dj, const char *alias, boolean loop) {
     dj->music_channels[channel].music = music;
     dj->music_channels[channel].alias_heap = alias_heap;
     dj->music_channels[channel].alias = alias_copy;
+    dj->music_channels[channel].volume = volume;
     dj->music_channels[channel].empty = False;
+    SetMusicVolume(music, volume);
     PlayMusicStream(music);
     return channel;
 }
@@ -562,6 +615,7 @@ void restart_music(DJ *dj, int channel) {
     if (!dj || !is_valid_channel(channel) || dj->music_channels[channel].empty)
         return;
 
+    SetMusicVolume(dj->music_channels[channel].music, dj->music_channels[channel].volume);
     StopMusicStream(dj->music_channels[channel].music);
     SeekMusicStream(dj->music_channels[channel].music, 0.0f);
     PlayMusicStream(dj->music_channels[channel].music);
@@ -572,6 +626,22 @@ void stop_music(DJ *dj, int channel) {
         return;
 
     reset_music_channel(dj, channel);
+}
+
+void set_music_channel_volume(DJ *dj, int channel, float volume) {
+    if (!dj || !is_valid_channel(channel) || dj->music_channels[channel].empty)
+        return;
+
+    const float clamped_volume = clamp_volume(volume);
+    dj->music_channels[channel].volume = clamped_volume;
+    SetMusicVolume(dj->music_channels[channel].music, clamped_volume);
+}
+
+float get_music_channel_volume(const DJ *dj, int channel) {
+    if (!dj || !is_valid_channel(channel) || dj->music_channels[channel].empty)
+        return -1.0f;
+
+    return dj->music_channels[channel].volume;
 }
 
 void clear_sound_channels(DJ *dj) {

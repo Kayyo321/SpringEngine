@@ -12,6 +12,8 @@ local player = {
 	move_speed = 120.0,
 	jump_force = 78.0 * 14.0,
 	jump_gravity_scale = 5.0,
+	stomp_default_volume = 0.1,
+	stomp_channel_volume = 0.1,
 	facing_x = 1.0,
 	is_dead = false,
 	is_dying_transition = false,
@@ -45,8 +47,35 @@ end
 
 local function play_stomp_sfx()
 	if DJ.play_sound then
-		DJ.play_sound("stomp-sfx")
+		local channel = DJ.play_sound("stomp-sfx")
+		if channel and channel >= 0 and DJ.set_sound_channel_volume then
+			DJ.set_sound_channel_volume(channel, player.stomp_channel_volume)
+		end
 	end
+end
+
+local function fade_music_for_game_over(t)
+	if not DJ.set_music_channel_volume then
+		return
+	end
+
+	local music_state = _G.__springengine_music_state
+	if type(music_state) ~= "table" then
+		return
+	end
+
+	local channel = music_state.channel
+	if not channel or channel < 0 then
+		return
+	end
+
+	local base_volume = music_state.base_volume or 1.0
+	local next_volume = base_volume * (1.0 - t)
+	if next_volume < 0.0 then
+		next_volume = 0.0
+	end
+
+	DJ.set_music_channel_volume(channel, next_volume)
 end
 
 local function read_move_input()
@@ -89,7 +118,7 @@ function player:start()
 	end
 
 	if DJ.load_sound then
-		DJ.load_sound("assets/Sounds/stomp-sfx.wav", "stomp-sfx")
+		DJ.load_sound("assets/Sounds/stomp-sfx.wav", "stomp-sfx", self.stomp_default_volume)
 	end
 	log_message("player.lua start")
 end
@@ -107,6 +136,8 @@ function player:update()
 		if fader and fader.set_color then
 			fader:set_color(0, 0, 0, alpha)
 		end
+
+		fade_music_for_game_over(t)
 
 		if not self.hud_hidden_for_transition and UI.find and UI.set_visible then
 			local hud_root = UI.find("hud", "root_canvas")
