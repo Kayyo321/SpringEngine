@@ -1,5 +1,6 @@
 local Engine = require("Engine")
 local Input = require("Engine.Input")
+local Scene = require("Engine.Scene")
 local Transform = require("Engine.Transform")
 local Rigidbody = require("Engine.Rigidbody")
 local DJ = require("Engine.DJ")
@@ -11,6 +12,7 @@ local player = {
 	jump_force = 78.0 * 14.0,
 	jump_gravity_scale = 5.0,
 	facing_x = 1.0,
+	is_dead = false,
 }
 
 local function get_hud_stats()
@@ -62,6 +64,7 @@ end
 
 function player:start()
 	self.facing_x = 1.0
+	self.is_dead = false
 
 	local stats = get_hud_stats()
 	stats.player_max_health = self.health
@@ -82,6 +85,10 @@ function player:start()
 end
 
 function player:update()
+	if self.is_dead then
+		return
+	end
+
 	local delta_time = get_delta_time()
 	local move_x = read_move_input()
 	local run_multiplier = 1.0
@@ -163,7 +170,15 @@ function player:take_damage(amount)
 end
 
 function player:die()
+	if self.is_dead then
+		return
+	end
+
+	self.is_dead = true
 	log_message("Player has died.")
+	if Scene.load then
+		Scene.load("game_over.scene.conf")
+	end
 end
 
 return player
