@@ -1003,7 +1003,11 @@ static void static_sprite_component_draw(StaticSpriteState *state, CameraCompone
         anchor.y = destination.height * 0.5f;
     }
 
-    DrawTexturePro(state->texture, source, destination, anchor, state->rotation, state->tint);
+    float actor_rotation_z = 0.0f;
+    if (state->actor)
+        actor_rotation_z = state->actor->transform.rotation_euler.z;
+
+    DrawTexturePro(state->texture, source, destination, anchor, state->rotation + actor_rotation_z, state->tint);
 }
 
 static void static_sprite_component_dispose(StaticSpriteState *state) {
@@ -1654,7 +1658,11 @@ static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraCom
         anchor.y = destination.height * 0.5f;
     }
 
-    DrawTexturePro(sheet->texture, source, destination, anchor, state->rotation, state->tint);
+    float actor_rotation_z = 0.0f;
+    if (state->actor)
+        actor_rotation_z = state->actor->transform.rotation_euler.z;
+
+    DrawTexturePro(sheet->texture, source, destination, anchor, state->rotation + actor_rotation_z, state->tint);
 }
 
 static void animated_sprite_component_dispose(AnimatedSpriteState *state) {

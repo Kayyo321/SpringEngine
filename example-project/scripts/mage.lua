@@ -28,6 +28,8 @@ local mage = {
     cached_anim_conf = nil,
     cached_player_script = nil,
     cached_player_script_actor_id = nil,
+    facing_rotation_offset_degrees = 0.0,
+    use_rotation_facing = true,
 }
 
 local function get_hud_stats()
@@ -59,6 +61,19 @@ local function normalize_2d(x, y)
     end
 
     return x / length, y / length
+end
+
+local function set_flight_rotation(self, direction_x, direction_y)
+    if not Transform.set_rotation_euler then
+        return
+    end
+
+    if math.abs(direction_x) <= 0.0001 and math.abs(direction_y) <= 0.0001 then
+        return
+    end
+
+    local angle_degrees = math.deg(math.atan2(direction_y, math.abs(direction_x))) + (self.facing_rotation_offset_degrees or 0.0)
+    Transform.set_rotation_euler(0.0, 0.0, angle_degrees)
 end
 
 local function find_player_actor(self)
@@ -109,6 +124,11 @@ local function set_visual_facing(self, moving_x)
     end
 
     if anim_conf and anim_conf.set_flip_x then
+        if self.use_rotation_facing then
+            anim_conf.set_flip_x(moving_x < 0.0)
+            return
+        end
+
         anim_conf.set_flip_x(moving_x < 0.0)
     end
 end
@@ -229,6 +249,7 @@ function mage:start()
 
     Transform.set_position(self.spawn_origin_x, player_y + self.spawn_height_offset, player_z)
     set_visual_facing(self, self.approach_direction_x)
+    set_flight_rotation(self, self.approach_direction_x, 0.0)
 
     log_message("mage.lua start")
 end
@@ -250,6 +271,7 @@ function mage:update()
         local to_player_x = player_x - mage_x
         local to_player_y = player_y - mage_y
         local move_x, move_y = normalize_2d(to_player_x, to_player_y)
+        set_flight_rotation(self, move_x, move_y)
         Transform.translate(move_x * self.fly_speed * delta_time, move_y * self.fly_speed * delta_time, 0.0)
         set_visual_facing(self, move_x)
 
@@ -274,6 +296,7 @@ function mage:update()
         local move_y = desired_y - mage_y
         local normalized_x, normalized_y = normalize_2d(move_x, move_y)
         local exit_speed = self.fly_speed * self.exit_speed_multiplier
+        set_flight_rotation(self, normalized_x, normalized_y)
         Transform.translate(normalized_x * exit_speed * delta_time, normalized_y * exit_speed * delta_time, 0.0)
         set_visual_facing(self, normalized_x)
     end
