@@ -5,6 +5,7 @@ local Transform = require("Engine.Transform")
 local Rigidbody = require("Engine.Rigidbody")
 local DJ = require("Engine.DJ")
 local Time = require("Engine.Time")
+local UI = require("Engine.UI")
 
 local player = {
 	health = 100.0,
@@ -13,6 +14,11 @@ local player = {
 	jump_gravity_scale = 5.0,
 	facing_x = 1.0,
 	is_dead = false,
+	is_dying_transition = false,
+	death_fade_duration = 0.45,
+	death_fade_elapsed = 0.0,
+	death_scene_requested = false,
+	hud_hidden_for_transition = false,
 }
 
 local function get_hud_stats()
@@ -65,6 +71,10 @@ end
 function player:start()
 	self.facing_x = 1.0
 	self.is_dead = false
+	self.is_dying_transition = false
+	self.death_fade_elapsed = 0.0
+	self.death_scene_requested = false
+	self.hud_hidden_for_transition = false
 
 	local stats = get_hud_stats()
 	stats.player_max_health = self.health
@@ -85,6 +95,35 @@ function player:start()
 end
 
 function player:update()
+	if self.is_dead and self.is_dying_transition then
+		self.death_fade_elapsed = self.death_fade_elapsed + get_delta_time()
+		local t = self.death_fade_elapsed / self.death_fade_duration
+		if t > 1.0 then
+			t = 1.0
+		end
+
+		local alpha = math.floor((t * 255.0) + 0.5)
+		local fader = self.get_component and self:get_component("StaticColor", "scene_fader") or nil
+		if fader and fader.set_color then
+			fader:set_color(0, 0, 0, alpha)
+		end
+
+		if not self.hud_hidden_for_transition and UI.find and UI.set_visible then
+			local hud_root = UI.find("hud", "root_canvas")
+			if hud_root then
+				UI.set_visible(hud_root, false)
+			end
+			self.hud_hidden_for_transition = true
+		end
+
+		if t >= 1.0 and not self.death_scene_requested and Scene.load then
+			self.death_scene_requested = true
+			Scene.load("game_over.scene.conf")
+		end
+
+		return
+	end
+
 	if self.is_dead then
 		return
 	end
@@ -175,9 +214,19 @@ function player:die()
 	end
 
 	self.is_dead = true
+	self.is_dying_transition = true
+	self.death_fade_elapsed = 0.0
+	self.death_scene_requested = false
 	log_message("Player has died.")
-	if Scene.load then
-		Scene.load("game_over.scene.conf")
+end
+
+function player:reset_to_stage_center(x, y, z)
+	if Transform.set_position then
+		Transform.set_position(x or 0.0, y or 1.0, z or 0.0)
+	end
+
+	if Rigidbody.set_velocity then
+		Rigidbody.set_velocity(0.0, 0.0)
 	end
 end
 
