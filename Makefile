@@ -14,6 +14,8 @@ BINDIR := bin
 TARGET ?= $(BINDIR)/springengine
 DEBUG_TARGET := $(BINDIR)/springengine-debug
 TEST_TARGET := $(BINDIR)/springengine-test
+RUN_PROJECT ?= ./example-project/
+LSAN_SUPPRESSIONS_FILE ?= .lsan-suppressions.txt
 
 BUILD_OBJDIR := $(OBJDIR)
 
@@ -102,9 +104,33 @@ endif
 
 .PHONY: all debug clean clean-test fclean re test check-allocators prepare-lua check-raylib
 
+ASAN_SYMBOLIZER := $(shell command -v llvm-symbolizer 2>/dev/null)
+ifeq ($(ASAN_SYMBOLIZER),)
+ASAN_SYMBOLIZER := $(shell command -v addr2line 2>/dev/null)
+endif
+
+ASAN_OPTIONS_BASE := symbolize=1:abort_on_error=0:detect_leaks=1
+ifneq ($(ASAN_SYMBOLIZER),)
+ASAN_OPTIONS_BASE := $(ASAN_OPTIONS_BASE):external_symbolizer_path=$(ASAN_SYMBOLIZER)
+endif
+LSAN_OPTIONS_BASE := report_objects=1
+LSAN_OPTIONS_WITH_SUPPRESSIONS := $(LSAN_OPTIONS_BASE)
+ifneq ($(wildcard $(LSAN_SUPPRESSIONS_FILE)),)
+LSAN_OPTIONS_WITH_SUPPRESSIONS := $(LSAN_OPTIONS_WITH_SUPPRESSIONS):suppressions=$(abspath $(LSAN_SUPPRESSIONS_FILE)):print_suppressions=1
+endif
+
 all: check-allocators prepare-lua check-raylib $(TARGET)
 
 debug: all
+
+run-debug: debug
+	./$(DEBUG_TARGET) --run $(RUN_PROJECT)
+
+run-debug-symbols: debug
+	ASAN_OPTIONS='$(ASAN_OPTIONS_BASE)' LSAN_OPTIONS='$(LSAN_OPTIONS_BASE)' ./$(DEBUG_TARGET) --run $(RUN_PROJECT)
+
+run-debug-symbols-sdl-suppressed: debug
+	ASAN_OPTIONS='$(ASAN_OPTIONS_BASE)' LSAN_OPTIONS='$(LSAN_OPTIONS_WITH_SUPPRESSIONS)' ./$(DEBUG_TARGET) --run $(RUN_PROJECT)
 
 $(TARGET): $(OBJ) $(LUA_STATIC_LIB) $(TOMLC17_STATIC_LIB) | $(BINDIR)
 	$(CC) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@

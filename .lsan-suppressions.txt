@@ -1,0 +1,7 @@
+# Suppress known leak reports originating from SDL/Wayland/EGL initialization paths.
+# Keep these narrowly scoped to external stacks outside SpringEngine code.
+leak:SDL_EGL_LoadLibrary
+leak:Wayland_GLES_LoadLibrary
+leak:SDL_GL_LoadLibrary_REAL
+leak:SDL_CreateWindowWithProperties_REAL
+leak:SDL_CreateWindow_REAL

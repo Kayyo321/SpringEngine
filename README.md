@@ -63,69 +63,9 @@ Available modules:
 - `Engine.Transform`
 - `Engine.Actor`
 - `Engine.Camera`
-- `Engine.Collider`
 - `Engine.Scene`
 - `Engine.DJ`
 - `Engine.UI`
-
-### Component Access API (Lua)
-
-Script tables now include `self.get_component(component_name, actor_id?)`.
-
-- If `actor_id` is omitted, it resolves on the current actor.
-- If `actor_id` is provided, it resolves on that actor.
-
-Current built-in script-facing component handle:
-
-- `AnimConf` (alias of `AnimatedSprite`):
-	- `set(param_name, bool)`
-	- `get(param_name)`
-	- `set_number(param_name, number)`
-	- `get_number(param_name)`
-	- `set_flip_x(enabled)`
-	- `get_flip_x()`
-- `Collider`:
-	- `set_offset(x, y)`
-	- `get_offset()`
-	- `set_size(width, height)`
-	- `get_size()`
-	- `set_enabled(enabled)`
-	- `get_enabled()`
-	- `set_is_trigger(enabled)`
-	- `get_is_trigger()`
-	- `get_bounds()`
-	- `overlaps_actor(actor_id)`
-	- `overlaps_point(x, y)`
-
-Cross-actor lookup is also exposed through:
-
-- `Engine.Actor.get_component(actor_id, component_name)`
-
-Example:
-
-```lua
-local anim_conf = self.get_component("AnimConf")
-if anim_conf then
-	anim_conf.set("moving", true)
-end
-
-local enemy_anim = require("Engine.Actor").get_component("enemy_01", "AnimConf")
-if enemy_anim then
-	enemy_anim.set("moving", false)
-end
-```
-
-### Collider API (Lua)
-
-`Engine.Collider` targets the current actor collider component and supports:
-
-- `set_offset(x, y)` / `get_offset()`
-- `set_size(width, height)` / `get_size()`
-- `set_enabled(enabled)` / `get_enabled()`
-- `set_is_trigger(enabled)` / `get_is_trigger()`
-- `get_bounds()`
-- `overlaps_actor(actor_id)`
-- `overlaps_point(x, y)`
 
 ### Time API (Lua)
 
@@ -149,23 +89,6 @@ end
 - `current()`
 
 `Scene.load(...)` expects a path relative to `Paths.scenes_dir` (or absolute path).
-
-### DJ API (Lua)
-
-`Engine.DJ` currently supports:
-
-- `load_sound(path, alias, default_volume?)`
-- `play_sound(alias)`
-- `restart_sound(channel)`
-- `stop_sound(channel)`
-- `set_sound_channel_volume(channel, volume)`
-- `get_sound_channel_volume(channel)`
-- `load_music(path, alias, default_volume?)`
-- `play_music(alias, loop)`
-- `restart_music(channel)`
-- `stop_music(channel)`
-- `set_music_channel_volume(channel, volume)`
-- `get_music_channel_volume(channel)`
 
 ### UI API (Lua)
 
@@ -247,6 +170,12 @@ Project layout:
 ### Commands
 
 - Build: `make`
+- Debug build (ASan): `make debug`
+- Run debug with default project: `make run-debug`
+- Run debug with symbolized ASan/LSan output: `make run-debug-symbols`
+- Run debug with symbolized output and SDL leak suppressions: `make run-debug-symbols-sdl-suppressed`
+- Run debug/symbolized with custom project: `make run-debug RUN_PROJECT=./path/to/project/` or `make run-debug-symbols RUN_PROJECT=./path/to/project/`
+- Override suppression file path (optional): `make run-debug-symbols-sdl-suppressed LSAN_SUPPRESSIONS_FILE=./my-lsan-suppressions.txt`
 - Rebuild: `make re`
 - Clean all object files (`.o`): `make clean`
 - Clean objects + binary: `make fclean`
