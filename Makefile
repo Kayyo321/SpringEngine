@@ -35,14 +35,17 @@ TOMLC17_INCLUDE_DIR := $(TOMLC17_DIR)/include
 TOMLC17_STATIC_LIB := $(TOMLC17_DIR)/lib/libtomlc17.a
 
 ALL_SRC := $(shell find $(SRCDIR) -type f -name '*.c')
+ROOT_SRC := $(wildcard tarheader.c)
 TEST_SRC := $(shell find $(SRCDIR)/testing -type f -name '*.c' 2>/dev/null)
-SRC := $(filter-out $(TEST_SRC),$(ALL_SRC))
+SRC := $(filter-out $(TEST_SRC),$(ALL_SRC) $(ROOT_SRC))
 ifneq (,$(filter test,$(MAKECMDGOALS)))
 SRC += $(TEST_SRC)
 TARGET := $(TEST_TARGET)
 BUILD_OBJDIR := $(OBJDIR)/test
 endif
-OBJ := $(patsubst $(SRCDIR)/%.c,$(BUILD_OBJDIR)/%.o,$(SRC))
+OBJ_SRC := $(patsubst $(SRCDIR)/%.c,$(BUILD_OBJDIR)/%.o,$(filter $(SRCDIR)/%,$(SRC)))
+OBJ_ROOT := $(patsubst %.c,$(BUILD_OBJDIR)/%.o,$(filter-out $(SRCDIR)/%,$(SRC)))
+OBJ := $(OBJ_SRC) $(OBJ_ROOT)
 DEP := $(OBJ:.o=.d)
 
 SRC_INCLUDE_DIRS := $(shell find $(SRCDIR) -type d 2>/dev/null)
@@ -165,6 +168,10 @@ $(TOMLC17_STATIC_LIB):
 	@$(MAKE) -C $(TOMLC17_DIR) clean install prefix=./
 
 $(BUILD_OBJDIR)/%.o: $(SRCDIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD_OBJDIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 

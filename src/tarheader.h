@@ -1,6 +1,8 @@
 #ifndef TARHEADER_H
 #define TARHEADER_H
 
+#include "common.h"
+
 enum {
     TarBlockSize = 512,
 };
@@ -24,5 +26,8 @@ typedef struct {
     char prefix[155];
     char pad[12];
 } TarHeader;
+
+boolean is_zero_block(const unsigned char *block, usize block_size);
+boolean is_zero_block_vfs(const unsigned char *data, usize offset, usize data_size);
 
 #endif //TARHEADER_H

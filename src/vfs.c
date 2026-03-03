@@ -9,6 +9,7 @@
 #include <unistd.h>
 
 #include "tarheader.h"
+#include "path_utils.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -55,76 +56,7 @@ typedef struct {
 static VfsState vfs_state = {0};
 
 static boolean has_targame_extension(const char *path) {
-    if (!path)
-        return False;
-
-    const char *dot = strrchr(path, '.');
-    if (!dot)
-        return False;
-
-    return strcmp(dot, ".targame") == 0 ? True : False;
-}
-
-static boolean is_absolute_path(const char *path) {
-    return (path && path[0] == '/') ? True : False;
-}
-
-static result normalize_path(const char *path, char *out_path, usize out_size) {
-    if (!path || !out_path || out_size == 0)
-        return Err;
-
-    usize out_index = 0;
-    usize index = 0;
-
-    while (path[index] == ' ')
-        ++index;
-
-    while (path[index] == '.' && path[index + 1] == '/')
-        index += 2;
-
-    for (; path[index] != '\0'; ++index) {
-        char ch = path[index];
-        if (ch == '\\')
-            ch = '/';
-
-        if (ch == '/' && out_index > 0 && out_path[out_index - 1] == '/')
-            continue;
-
-        if (out_index + 1 >= out_size)
-            return Err;
-
-        out_path[out_index++] = ch;
-    }
-
-    while (out_index > 0 && out_path[out_index - 1] == '/')
-        --out_index;
-
-    if (out_index == 0) {
-        out_path[0] = '\0';
-        return Ok;
-    }
-
-    out_path[out_index] = '\0';
-    return Ok;
-}
-
-static boolean path_has_unsafe_components(const char *path) {
-    if (!path || path[0] == '\0')
-        return True;
-
-    if (path[0] == '/')
-        return True;
-
-    if (strcmp(path, "..") == 0)
-        return True;
-
-    if (strstr(path, "../") != Null)
-        return True;
-
-    if (strstr(path, "/..") != Null)
-        return True;
-
-    return False;
+    return path_has_extension(path, ".targame");
 }
 
 static unsigned long long parse_octal_field(const char *field, usize field_size) {
@@ -147,18 +79,6 @@ static unsigned long long parse_octal_field(const char *field, usize field_size)
     return value;
 }
 
-static boolean is_zero_block(const unsigned char *data, usize offset, usize data_size) {
-    if (!data || offset + TarBlockSize > data_size)
-        return True;
-
-    for (usize index = 0; index < TarBlockSize; ++index) {
-        if (data[offset + index] != 0)
-            return False;
-    }
-
-    return True;
-}
-
 static result read_tar_entry_path(const TarHeader *header, char *out_path, usize out_size) {
     if (!header || !out_path || out_size == 0)
         return Err;
@@ -177,7 +97,7 @@ static result read_tar_entry_path(const TarHeader *header, char *out_path, usize
             return Err;
     }
 
-    if (normalize_path(raw_path, out_path, out_size) != Ok)
+    if (normalize_relative_path(raw_path, out_path, out_size) != Ok)
         return Err;
 
     if (path_has_unsafe_components(out_path))
@@ -371,7 +291,7 @@ static result mount_archive_file(const char *archive_path) {
 
     usize offset = 0;
     while (offset + TarBlockSize <= archive_size) {
-        if (is_zero_block(archive_bytes, offset, archive_size))
+        if (is_zero_block_vfs(archive_bytes, offset, archive_size))
             break;
 
         TarHeader header;
