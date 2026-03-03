@@ -14,8 +14,6 @@
 #define PATH_MAX 4096
 #endif
 
-#define TAR_BLOCK_SIZE 512
-
 typedef enum {
     VfsModeNone = 0,
     VfsModeDisk,
@@ -150,10 +148,10 @@ static unsigned long long parse_octal_field(const char *field, usize field_size)
 }
 
 static boolean is_zero_block(const unsigned char *data, usize offset, usize data_size) {
-    if (!data || offset + TAR_BLOCK_SIZE > data_size)
+    if (!data || offset + TarBlockSize > data_size)
         return True;
 
-    for (usize index = 0; index < TAR_BLOCK_SIZE; ++index) {
+    for (usize index = 0; index < TarBlockSize; ++index) {
         if (data[offset + index] != 0)
             return False;
     }
@@ -372,7 +370,7 @@ static result mount_archive_file(const char *archive_path) {
     usize archive_size = archive_heap.size;
 
     usize offset = 0;
-    while (offset + TAR_BLOCK_SIZE <= archive_size) {
+    while (offset + TarBlockSize <= archive_size) {
         if (is_zero_block(archive_bytes, offset, archive_size))
             break;
 
@@ -388,7 +386,7 @@ static result mount_archive_file(const char *archive_path) {
 
         const char typeflag = (header.typeflag == '\0') ? '0' : header.typeflag;
         const usize data_size = (usize)parse_octal_field(header.size, sizeof(header.size));
-        const usize data_offset = offset + TAR_BLOCK_SIZE;
+        const usize data_offset = offset + TarBlockSize;
         if (data_offset + data_size > archive_size) {
             deallocate(archive_heap);
             log_err("Archive '%s' is truncated", archive_path);
@@ -407,7 +405,7 @@ static result mount_archive_file(const char *archive_path) {
             }
         }
 
-        const usize aligned_size = ((data_size + (TAR_BLOCK_SIZE - 1)) / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+        const usize aligned_size = ((data_size + (TarBlockSize - 1)) / TarBlockSize) * TarBlockSize;
         offset = data_offset + aligned_size;
     }
 

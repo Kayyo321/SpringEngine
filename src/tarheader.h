@@ -1,6 +1,10 @@
 #ifndef TARHEADER_H
 #define TARHEADER_H
 
+enum {
+    TarBlockSize = 512,
+};
+
 typedef struct {
     char name[100];
     char mode[8];

@@ -14,8 +14,6 @@
 #define PATH_MAX 4096
 #endif
 
-#define TAR_BLOCK_SIZE 512
-
 static boolean is_absolute_path(const char *path) {
     return (path && path[0] == '/') ? True : False;
 }
@@ -209,7 +207,7 @@ static unsigned long tar_checksum(const TarHeader *header) {
 
     unsigned long sum = 0;
     const unsigned char *bytes = (const unsigned char *)header;
-    for (usize index = 0; index < TAR_BLOCK_SIZE; ++index)
+    for (usize index = 0; index < TarBlockSize; ++index)
         sum += (unsigned long)bytes[index];
 
     return sum;
@@ -303,9 +301,9 @@ static result write_file_contents(FILE *archive, const char *source_path, const 
 
     fclose(source);
 
-    const usize padding = (usize)((TAR_BLOCK_SIZE - ((unsigned long long)st->st_size % TAR_BLOCK_SIZE)) % TAR_BLOCK_SIZE);
+    const usize padding = (usize)((TarBlockSize - ((unsigned long long)st->st_size % TarBlockSize)) % TarBlockSize);
     if (padding > 0) {
-        unsigned char zeroes[TAR_BLOCK_SIZE] = {0};
+        unsigned char zeroes[TarBlockSize] = {0};
         if (fwrite(zeroes, 1, padding, archive) != padding) {
             log_err("Failed to write tar padding for '%s'", source_path);
             return Err;
@@ -455,7 +453,7 @@ static result skip_file_data(FILE *archive, unsigned long long file_size) {
     if (!archive)
         return Err;
 
-    const unsigned long long aligned_size = ((file_size + (TAR_BLOCK_SIZE - 1)) / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+    const unsigned long long aligned_size = ((file_size + (TarBlockSize - 1)) / TarBlockSize) * TarBlockSize;
     if (fseek(archive, (long)aligned_size, SEEK_CUR) != 0)
         return Err;
 
@@ -501,7 +499,7 @@ static result unpack_regular_file(FILE *archive, const char *destination_path, u
 
     fclose(destination);
 
-    const usize padding = (usize)((TAR_BLOCK_SIZE - (file_size % TAR_BLOCK_SIZE)) % TAR_BLOCK_SIZE);
+    const usize padding = (usize)((TarBlockSize - (file_size % TarBlockSize)) % TarBlockSize);
     if (padding > 0) {
         if (fseek(archive, (long)padding, SEEK_CUR) != 0) {
             log_err("Failed to skip padding while extracting '%s'", destination_path);
@@ -555,7 +553,7 @@ result pack_directory_to_targame(const char *source_directory, const char *archi
 
     closedir(root);
 
-    unsigned char zero_block[TAR_BLOCK_SIZE] = {0};
+    unsigned char zero_block[TarBlockSize] = {0};
     if (fwrite(zero_block, 1, sizeof(zero_block), archive) != sizeof(zero_block)
         || fwrite(zero_block, 1, sizeof(zero_block), archive) != sizeof(zero_block)) {
         fclose(archive);
