@@ -28,6 +28,12 @@ typedef struct {
 } VfsEntry;
 
 typedef struct {
+    void *ctx_data;
+    Heap bytes_heap;
+    boolean active;
+} VfsMusicBacking;
+
+typedef struct {
     VfsMode mode;
     char source_path[PATH_MAX];
 
@@ -39,6 +45,11 @@ typedef struct {
     VfsEntry *entries;
     usize entry_count;
     usize entry_capacity;
+
+    Heap music_backings_heap;
+    VfsMusicBacking *music_backings;
+    usize music_backing_count;
+    usize music_backing_capacity;
 } VfsState;
 
 typedef struct {
@@ -243,6 +254,72 @@ static result add_archive_entry(const char *path, usize data_offset, usize data_
     return Ok;
 }
 
+static result ensure_music_backing_capacity(usize needed) {
+    if (needed <= vfs_state.music_backing_capacity)
+        return Ok;
+
+    usize next_capacity = vfs_state.music_backing_capacity == 0 ? 8 : vfs_state.music_backing_capacity * 2;
+    while (next_capacity < needed)
+        next_capacity *= 2;
+
+    const usize next_size = next_capacity * sizeof(VfsMusicBacking);
+    if (!vfs_state.music_backings) {
+        vfs_state.music_backings_heap = allocate(next_capacity, sizeof(VfsMusicBacking));
+        vfs_state.music_backings = (VfsMusicBacking *)vfs_state.music_backings_heap.pointer;
+        if (!vfs_state.music_backings)
+            return Err;
+    } else {
+        vfs_state.music_backings_heap = reallocate(vfs_state.music_backings_heap, next_size);
+        vfs_state.music_backings = (VfsMusicBacking *)vfs_state.music_backings_heap.pointer;
+        if (!vfs_state.music_backings)
+            return Err;
+    }
+
+    if (next_capacity > vfs_state.music_backing_capacity) {
+        memset(vfs_state.music_backings + vfs_state.music_backing_capacity, 0,
+               (next_capacity - vfs_state.music_backing_capacity) * sizeof(VfsMusicBacking));
+    }
+
+    vfs_state.music_backing_capacity = next_capacity;
+    return Ok;
+}
+
+static result register_music_backing(void *ctx_data, Heap bytes_heap) {
+    if (!ctx_data || !bytes_heap.pointer)
+        return Err;
+
+    if (ensure_music_backing_capacity(vfs_state.music_backing_count + 1) != Ok)
+        return Err;
+
+    VfsMusicBacking *backing = &vfs_state.music_backings[vfs_state.music_backing_count++];
+    backing->ctx_data = ctx_data;
+    backing->bytes_heap = bytes_heap;
+    backing->active = True;
+    return Ok;
+}
+
+static void release_music_backing_by_ctx(void *ctx_data) {
+    if (!ctx_data || !vfs_state.music_backings)
+        return;
+
+    for (usize index = 0; index < vfs_state.music_backing_count; ++index) {
+        VfsMusicBacking *backing = &vfs_state.music_backings[index];
+        if (!backing->active || backing->ctx_data != ctx_data)
+            continue;
+
+        if (backing->bytes_heap.pointer)
+            deallocate(backing->bytes_heap);
+
+        const usize last_index = vfs_state.music_backing_count - 1;
+        if (index != last_index)
+            vfs_state.music_backings[index] = vfs_state.music_backings[last_index];
+
+        vfs_state.music_backings[last_index] = (VfsMusicBacking){0};
+        --vfs_state.music_backing_count;
+        return;
+    }
+}
+
 static int find_archive_entry_index(const char *path) {
     if (!path || path[0] == '\0')
         return -1;
@@ -359,10 +436,20 @@ static result mount_archive_file(const char *archive_path) {
 }
 
 void vfs_unmount(void) {
+    if (vfs_state.music_backings) {
+        for (usize index = 0; index < vfs_state.music_backing_count; ++index) {
+            VfsMusicBacking *backing = &vfs_state.music_backings[index];
+            if (backing->active && backing->bytes_heap.pointer)
+                deallocate(backing->bytes_heap);
+        }
+    }
+
     if (vfs_state.archive_heap.pointer)
         deallocate(vfs_state.archive_heap);
     if (vfs_state.entries_heap.pointer)
         deallocate(vfs_state.entries_heap);
+    if (vfs_state.music_backings_heap.pointer)
+        deallocate(vfs_state.music_backings_heap);
 
     memset(&vfs_state, 0, sizeof(vfs_state));
 }
@@ -373,7 +460,7 @@ result vfs_mount_project(const char *project_path) {
 
     vfs_unmount();
 
-    if (snprintf(vfs_state.source_path, sizeof(vfs_state.source_path), "%s", project_path) >= (int)sizeof(vfs_state.source_path))
+    if (normalize_path(project_path, vfs_state.source_path, sizeof(vfs_state.source_path)) != Ok)
         return Err;
 
     struct stat st = {0};
@@ -689,10 +776,30 @@ result vfs_load_music(const char *path, Music *out_music) {
         return Err;
 
     Music music = LoadMusicStreamFromMemory(path_extension(path), (const unsigned char *)bytes.pointer, (int)bytes.size);
-    deallocate(bytes);
-    if (!music.ctxData)
+    if (!music.ctxData) {
+        deallocate(bytes);
         return Err;
+    }
+
+    if (register_music_backing(music.ctxData, bytes) != Ok) {
+        UnloadMusicStream(music);
+        deallocate(bytes);
+        return Err;
+    }
 
     *out_music = music;
     return Ok;
+}
+
+void vfs_unload_music(Music *music) {
+    if (!music)
+        return;
+
+    void *ctx_data = music->ctxData;
+    UnloadMusicStream(*music);
+
+    if (vfs_state.mode == VfsModeArchive)
+        release_music_backing_by_ctx(ctx_data);
+
+    *music = (Music){0};
 }

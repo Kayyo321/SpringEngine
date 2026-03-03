@@ -285,7 +285,7 @@ static result music_map_set(StringMusicMap *map, const char *key, Music music, f
             break;
 
         if (map->buckets[slot].hash == hash && strcmp(map->buckets[slot].key, key) == 0) {
-            UnloadMusicStream(map->buckets[slot].music);
+            vfs_unload_music(&map->buckets[slot].music);
             map->buckets[slot].music = music;
             map->buckets[slot].default_volume = clamped_default_volume;
             return Ok;
@@ -325,8 +325,7 @@ static void music_map_clear(StringMusicMap *map) {
             deallocate(map->buckets[i].key_heap);
 
         map->buckets[i].key_heap = NullHeap;
-        UnloadMusicStream(map->buckets[i].music);
-        map->buckets[i].music = (Music){0};
+        vfs_unload_music(&map->buckets[i].music);
         map->buckets[i].filled = False;
     }
 
@@ -571,7 +570,7 @@ void load_music_source_as_with_volume(DJ *dj, const char *path, const char *alia
 
     stop_music_channels_for_alias(dj, alias);
     if (music_map_set(&dj->music_aliases, alias, music, default_volume) != Ok) {
-        UnloadMusicStream(music);
+        vfs_unload_music(&music);
         log_err("Failed to register music alias '%s'", alias);
     }
 }

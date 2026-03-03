@@ -23,5 +23,6 @@ result vfs_count_conf_files(usize *out_conf_count);
 result vfs_load_texture(const char *path, Texture2D *out_texture);
 result vfs_load_sound(const char *path, Sound *out_sound);
 result vfs_load_music(const char *path, Music *out_music);
+void vfs_unload_music(Music *music);
 
 #endif // VFS_H
