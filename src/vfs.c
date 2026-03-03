@@ -55,6 +55,19 @@ typedef struct {
 
 static VfsState vfs_state = {0};
 
+static void strip_dot_relative_prefix(char *path) {
+    if (!path)
+        return;
+
+    while (path[0] == '.' && path[1] == '/') {
+        const usize length = strlen(path);
+        memmove(path, path + 2, length - 1);
+    }
+
+    if (strcmp(path, ".") == 0)
+        path[0] = '\0';
+}
+
 static result ensure_entry_capacity(usize needed) {
     if (needed <= vfs_state.entry_capacity)
         return Ok;
@@ -94,7 +107,13 @@ static result add_archive_entry(const char *path, usize data_offset, usize data_
     VfsEntry *entry = &vfs_state.entries[vfs_state.entry_count++];
     memset(entry, 0, sizeof(*entry));
 
-    if (snprintf(entry->path, sizeof(entry->path), "%s", path) >= (int)sizeof(entry->path))
+    char normalized_path[PATH_MAX] = {0};
+    if (normalize_path(path, normalized_path, sizeof(normalized_path)) != Ok)
+        return Err;
+
+    strip_dot_relative_prefix(normalized_path);
+
+    if (snprintf(entry->path, sizeof(entry->path), "%s", normalized_path) >= (int)sizeof(entry->path))
         return Err;
 
     entry->data_offset = data_offset;
@@ -176,6 +195,8 @@ static int find_archive_entry_index(const char *path) {
     char normalized[PATH_MAX] = {0};
     if (normalize_path(path, normalized, sizeof(normalized)) != Ok)
         return -1;
+
+    strip_dot_relative_prefix(normalized);
 
     for (usize index = 0; index < vfs_state.entry_count; ++index) {
         if (strcmp(vfs_state.entries[index].path, normalized) == 0)
@@ -374,6 +395,9 @@ result vfs_resolve_path(const char *base, const char *path, char *out_path, usiz
         return Err;
     if (normalize_path(path, normalized_path, sizeof(normalized_path)) != Ok)
         return Err;
+
+    strip_dot_relative_prefix(normalized_base);
+    strip_dot_relative_prefix(normalized_path);
 
     if (strcmp(normalized_base, vfs_state.source_path) == 0)
         normalized_base[0] = '\0';
