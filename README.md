@@ -20,7 +20,7 @@ Execution flow:
 2. Download a SpringEngine-compatible game package.
 3. Run it with SpringEngine.
 
-## Lua-First Gameplay Direction
+## Lua Scripting
 
 SpringEngine follows a Unity-like composition approach with Lua as the default gameplay language.
 
@@ -68,6 +68,17 @@ Related design docs:
 - `docs/ui-system-vision.md`
 - `docs/lighting-system-vision.md`
 - `docs/child-actor-system-vision.md`
+
+## Wiki
+
+Practical guides and references live in `wiki/`:
+
+- `wiki/README.md`
+- `wiki/getting-started.md`
+- `wiki/project-workflow.md`
+- `wiki/scripting-guide.md`
+- `wiki/config-reference.md`
+- `wiki/example-project.md`
 
 ## Build and Run
 
