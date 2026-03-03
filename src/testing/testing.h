@@ -1,5 +1,5 @@
-#ifndef TESTING_H
-#define TESTING_H
+#ifndef TestingH
+#define TestingH
 
 extern int tests_ran, tests_failed, tests_passed;
 

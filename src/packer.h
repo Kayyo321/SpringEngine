@@ -1,5 +1,5 @@
-#ifndef PACKER_H
-#define PACKER_H
+#ifndef PackerH
+#define PackerH
 
 #include "common.h"
 

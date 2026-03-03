@@ -13,7 +13,7 @@ static result lua_rigidbody_get_current(lua_State *lua_state, Actor **out_actor,
     if (!actor)
         return Err;
 
-    RigidbodyComponentData *rigidbody = actor_find_builtin_component_data_as(actor, "Rigidbody", RigidbodyComponentData);
+    RigidbodyComponentData *rigidbody = ActorFindBuiltinComponentDataAs(actor, "Rigidbody", RigidbodyComponentData);
     if (!rigidbody)
         return Err;
 

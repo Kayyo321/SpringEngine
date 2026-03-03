@@ -1,6 +1,6 @@
 #include "testing.h"
 
-#define COMMON_ALLOW_STDLIB_ALLOCATORS
+#define CommonAllowStdlibAllocators
 #include "packer.h"
 
 #include "vfs.h"

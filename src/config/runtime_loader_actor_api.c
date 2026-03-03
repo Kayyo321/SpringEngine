@@ -1,13 +1,13 @@
 #include "runtime_loader_internal.h"
 
 result runtime_instantiate_prefab(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size) {
-    RUNTIME_GUARD_ACTIVE_ERR();
+    RuntimeGuardActiveErr();
 
     return enqueue_prefab_instantiation(prefab_ref_id, has_position, x, y, z, out_actor_id, out_actor_id_size);
 }
 
 result runtime_destroy_actor(const char *actor_id) {
-    RUNTIME_GUARD_ACTIVE_ERR();
+    RuntimeGuardActiveErr();
     if (!actor_id || actor_id[0] == '\0')
         return Err;
 
@@ -20,7 +20,7 @@ result runtime_destroy_actor(const char *actor_id) {
 }
 
 result runtime_set_actor_destroy_on_load(const char *actor_id, boolean destroy_on_load) {
-    RUNTIME_GUARD_ACTIVE_ERR();
+    RuntimeGuardActiveErr();
     if (!actor_id || actor_id[0] == '\0')
         return Err;
 
@@ -33,7 +33,7 @@ result runtime_set_actor_destroy_on_load(const char *actor_id, boolean destroy_o
 }
 
 result runtime_get_actor_destroy_on_load(const char *actor_id, boolean *out_destroy_on_load) {
-    RUNTIME_GUARD_ACTIVE_ERR();
+    RuntimeGuardActiveErr();
     if (!actor_id || actor_id[0] == '\0' || !out_destroy_on_load)
         return Err;
 

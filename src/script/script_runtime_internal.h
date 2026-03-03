@@ -1,5 +1,5 @@
-#ifndef SCRIPT_RUNTIME_INTERNAL_H
-#define SCRIPT_RUNTIME_INTERNAL_H
+#ifndef ScriptRuntimeInternalH
+#define ScriptRuntimeInternalH
 
 #include "script_runtime.h"
 

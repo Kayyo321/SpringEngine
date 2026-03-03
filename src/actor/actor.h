@@ -1,5 +1,5 @@
-#ifndef ACTOR_H
-#define ACTOR_H
+#ifndef ActorH
+#define ActorH
 
 #include "common.h"
 
@@ -98,8 +98,8 @@ ActorComponent *actor_find_component(Actor *actor, ComponentKind kind, const cha
 void *actor_find_component_data(Actor *actor, ComponentKind kind, const char *component_name);
 ActorComponent *actor_find_builtin_component(Actor *actor, const char *component_name);
 
-#define actor_find_component_data_as(actor, kind, component_name, Type) ((Type *)actor_find_component_data((actor), (kind), (component_name)))
-#define actor_find_builtin_component_data_as(actor, component_name, Type) actor_find_component_data_as((actor), ComponentBuiltin, (component_name), Type)
+#define ActorFindComponentDataAs(actor, kind, component_name, Type) ((Type *)actor_find_component_data((actor), (kind), (component_name)))
+#define ActorFindBuiltinComponentDataAs(actor, component_name, Type) ActorFindComponentDataAs((actor), ComponentBuiltin, (component_name), Type)
 
 void actor_registry_init(ActorRegistry *registry);
 void actor_registry_dispose(ActorRegistry *registry);

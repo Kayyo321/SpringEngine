@@ -1,5 +1,5 @@
-#ifndef RIGIDBODY_COMPONENT_H
-#define RIGIDBODY_COMPONENT_H
+#ifndef RigidbodyComponentH
+#define RigidbodyComponentH
 
 #include "actor.h"
 

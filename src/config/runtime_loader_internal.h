@@ -1,5 +1,5 @@
-#ifndef RUNTIME_LOADER_INTERNAL_H
-#define RUNTIME_LOADER_INTERNAL_H
+#ifndef RuntimeLoaderInternalH
+#define RuntimeLoaderInternalH
 
 #include "runtime_loader.h"
 
@@ -62,22 +62,22 @@ typedef struct {
 
 extern RuntimeState runtime_state;
 
-#define RUNTIME_GUARD_ACTIVE_ERR() do { \
+#define RuntimeGuardActiveErr() do { \
     if (!runtime_state.active) \
         return Err; \
 } while (False)
 
-#define RUNTIME_GUARD_ACTIVE_NULL() do { \
+#define RuntimeGuardActiveNull() do { \
     if (!runtime_state.active) \
         return Null; \
 } while (False)
 
-#define RUNTIME_GUARD_UI_ERR() do { \
+#define RuntimeGuardUiErr() do { \
     if (!runtime_state.active || !runtime_state.ui_runtime) \
         return Err; \
 } while (False)
 
-#define RUNTIME_GUARD_UI_NULL() do { \
+#define RuntimeGuardUiNull() do { \
     if (!runtime_state.active || !runtime_state.ui_runtime) \
         return Null; \
 } while (False)
@@ -85,4 +85,4 @@ extern RuntimeState runtime_state;
 Actor *find_actor_by_id(const char *actor_id);
 result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size);
 
-#endif // RUNTIME_LOADER_INTERNAL_H
+#endif // RuntimeLoaderInternalH

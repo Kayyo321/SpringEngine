@@ -1,5 +1,5 @@
-#ifndef RUNTIME_LOADER_H
-#define RUNTIME_LOADER_H
+#ifndef RuntimeLoaderH
+#define RuntimeLoaderH
 
 #include "common.h"
 

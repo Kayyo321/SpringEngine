@@ -1,5 +1,5 @@
-#ifndef PROGRAM_H
-#define PROGRAM_H
+#ifndef ProgramH
+#define ProgramH
 
 void run_program(void);
 

@@ -1,5 +1,5 @@
-#ifndef PATH_UTILS_H
-#define PATH_UTILS_H
+#ifndef PathUtilsH
+#define PathUtilsH
 
 #include "common.h"
 

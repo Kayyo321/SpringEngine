@@ -1,5 +1,5 @@
-#ifndef STATIC_SPRITE_COMPONENT_H
-#define STATIC_SPRITE_COMPONENT_H
+#ifndef StaticSpriteComponentH
+#define StaticSpriteComponentH
 
 #include "actor/actor.h"
 

@@ -1,5 +1,5 @@
-#ifndef SCRIPT_RUNTIME_H
-#define SCRIPT_RUNTIME_H
+#ifndef ScriptRuntimeH
+#define ScriptRuntimeH
 
 #include "actor/actor.h"
 #include "dj/dj.h"

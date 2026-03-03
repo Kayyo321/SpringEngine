@@ -1,5 +1,5 @@
-#ifndef CAMERA_COMPONENT_H
-#define CAMERA_COMPONENT_H
+#ifndef CameraComponentH
+#define CameraComponentH
 
 #include "actor.h"
 

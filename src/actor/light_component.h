@@ -1,5 +1,5 @@
-#ifndef LIGHT_COMPONENT_H
-#define LIGHT_COMPONENT_H
+#ifndef LightComponentH
+#define LightComponentH
 
 #include "actor.h"
 

@@ -14,8 +14,8 @@ static boolean scene_actor_overlaps_caller(lua_State *lua_state, Actor *candidat
     if (!caller || caller == candidate)
         return False;
 
-    ColliderComponentData *caller_collider = actor_find_builtin_component_data_as(caller, "Collider", ColliderComponentData);
-    ColliderComponentData *candidate_collider = actor_find_builtin_component_data_as(candidate, "Collider", ColliderComponentData);
+    ColliderComponentData *caller_collider = ActorFindBuiltinComponentDataAs(caller, "Collider", ColliderComponentData);
+    ColliderComponentData *candidate_collider = ActorFindBuiltinComponentDataAs(candidate, "Collider", ColliderComponentData);
     if (!caller_collider || !candidate_collider)
         return False;
 

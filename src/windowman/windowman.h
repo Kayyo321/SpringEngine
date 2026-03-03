@@ -1,5 +1,5 @@
-#ifndef WINDOWMAN_H
-#define WINDOWMAN_H
+#ifndef WindowmanH
+#define WindowmanH
 
 #include "common.h"
 

@@ -1,5 +1,5 @@
-#ifndef LIGHTING_CONFIG_H
-#define LIGHTING_CONFIG_H
+#ifndef LightingConfigH
+#define LightingConfigH
 
 #include "common.h"
 

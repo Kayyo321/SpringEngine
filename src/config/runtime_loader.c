@@ -1285,8 +1285,8 @@ static void rigidbody_component_resolve_collisions(void) {
         if (!left_actor->enabled)
             continue;
 
-        ColliderComponentData *left_collider = actor_find_builtin_component_data_as(left_actor, "Collider", ColliderComponentData);
-        RigidbodyComponentData *left_rigidbody = actor_find_builtin_component_data_as(left_actor, "Rigidbody", RigidbodyComponentData);
+        ColliderComponentData *left_collider = ActorFindBuiltinComponentDataAs(left_actor, "Collider", ColliderComponentData);
+        RigidbodyComponentData *left_rigidbody = ActorFindBuiltinComponentDataAs(left_actor, "Rigidbody", RigidbodyComponentData);
         if (!left_collider || !left_rigidbody || !left_collider->enabled || left_collider->is_trigger)
             continue;
 
@@ -1301,7 +1301,7 @@ static void rigidbody_component_resolve_collisions(void) {
             if (!right_actor->enabled)
                 continue;
 
-            ColliderComponentData *right_collider = actor_find_builtin_component_data_as(right_actor, "Collider", ColliderComponentData);
+            ColliderComponentData *right_collider = ActorFindBuiltinComponentDataAs(right_actor, "Collider", ColliderComponentData);
             if (!right_collider || !right_collider->enabled || right_collider->is_trigger)
                 continue;
 
@@ -2371,7 +2371,7 @@ static boolean debug_get_visible_collider_at(usize target_index, Actor **out_act
         if (!actor->enabled)
             continue;
 
-        ColliderComponentData *collider = actor_find_builtin_component_data_as(actor, "Collider", ColliderComponentData);
+        ColliderComponentData *collider = ActorFindBuiltinComponentDataAs(actor, "Collider", ColliderComponentData);
         if (!collider || !collider->enabled)
             continue;
 
@@ -2559,7 +2559,7 @@ static void debug_draw_collider_borders(void) {
         if (!actor->enabled)
             continue;
 
-        ColliderComponentData *collider = actor_find_builtin_component_data_as(actor, "Collider", ColliderComponentData);
+        ColliderComponentData *collider = ActorFindBuiltinComponentDataAs(actor, "Collider", ColliderComponentData);
         if (!collider || !collider->enabled)
             continue;
 
@@ -2607,7 +2607,7 @@ static void draw_point_light_overlays(CameraComponentData *active_camera, Actor 
         if (!actor->enabled)
             continue;
 
-        PointLightComponentData *point_light = actor_find_builtin_component_data_as(actor, "PointLight", PointLightComponentData);
+        PointLightComponentData *point_light = ActorFindBuiltinComponentDataAs(actor, "PointLight", PointLightComponentData);
         if (!point_light || !point_light->enabled)
             continue;
 
@@ -2714,7 +2714,7 @@ static void frame_update(void) {
         if (!actor->enabled)
             continue;
 
-        CameraComponentData *camera_state = actor_find_builtin_component_data_as(actor, "Camera", CameraComponentData);
+        CameraComponentData *camera_state = ActorFindBuiltinComponentDataAs(actor, "Camera", CameraComponentData);
         if (!camera_state)
             continue;
 

@@ -27,7 +27,7 @@ static result lua_camera_get_current(lua_State *lua_state, Actor **out_actor, Ca
     if (!actor)
         return Err;
 
-    CameraComponentData *camera = actor_find_builtin_component_data_as(actor, "Camera", CameraComponentData);
+    CameraComponentData *camera = ActorFindBuiltinComponentDataAs(actor, "Camera", CameraComponentData);
     if (!camera)
         return Err;
 

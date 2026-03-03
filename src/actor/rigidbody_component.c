@@ -3,7 +3,7 @@
 #include <string.h>
 
 RigidbodyComponentData *actor_find_rigidbody_component(Actor *actor) {
-    return actor_find_builtin_component_data_as(actor, "Rigidbody", RigidbodyComponentData);
+    return ActorFindBuiltinComponentDataAs(actor, "Rigidbody", RigidbodyComponentData);
 }
 
 const char *rigidbody_body_type_to_string(RigidbodyBodyType body_type) {

@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 result runtime_request_scene_load(const char *scene_path) {
-    RUNTIME_GUARD_ACTIVE_ERR();
+    RuntimeGuardActiveErr();
     if (!scene_path || scene_path[0] == '\0')
         return Err;
 
@@ -17,7 +17,7 @@ result runtime_request_scene_load(const char *scene_path) {
 }
 
 const char *runtime_current_scene_path(void) {
-    RUNTIME_GUARD_ACTIVE_NULL();
+    RuntimeGuardActiveNull();
 
     if (!runtime_state.current_scene_path[0])
         return Null;

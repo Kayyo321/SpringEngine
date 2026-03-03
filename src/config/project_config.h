@@ -1,5 +1,5 @@
-#ifndef PROJECT_CONFIG_H
-#define PROJECT_CONFIG_H
+#ifndef ProjectConfigH
+#define ProjectConfigH
 
 #include "common.h"
 #include "windowman/windowman.h"

@@ -1,5 +1,5 @@
-#ifndef MAKER_H
-#define MAKER_H
+#ifndef MakerH
+#define MakerH
 
 #include "common.h"
 

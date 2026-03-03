@@ -1,5 +1,5 @@
-#ifndef VFS_H
-#define VFS_H
+#ifndef VfsH
+#define VfsH
 
 #include "common.h"
 

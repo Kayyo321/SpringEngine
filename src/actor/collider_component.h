@@ -1,5 +1,5 @@
-#ifndef COLLIDER_COMPONENT_H
-#define COLLIDER_COMPONENT_H
+#ifndef ColliderComponentH
+#define ColliderComponentH
 
 #include "actor.h"
 

@@ -1,4 +1,4 @@
-#define COMMON_ALLOW_STDLIB_ALLOCATORS
+#define CommonAllowStdlibAllocators
 #include "common.h"
 
 #include <stdio.h>

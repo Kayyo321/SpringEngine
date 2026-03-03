@@ -34,14 +34,14 @@ void run_program(void) {
         return;
     }
 
-#define arg_equ(arg_index, arg_str) (program.argv[arg_index] && strcmp(program.argv[arg_index], arg_str) == 0)
+#define ArgEqu(arg_index, arg_str) (program.argv[arg_index] && strcmp(program.argv[arg_index], arg_str) == 0)
 
-    if (arg_equ(1, "--version") || arg_equ(1, "-v")) {
+    if (ArgEqu(1, "--version") || ArgEqu(1, "-v")) {
         version();
         return;
     }
 
-    if (arg_equ(1, "--run") || arg_equ(1, "-r")) {
+    if (ArgEqu(1, "--run") || ArgEqu(1, "-r")) {
         if (program.argc < 3) {
             log_err("Missing project path for --run command");
             quit(Err);
@@ -53,7 +53,7 @@ void run_program(void) {
         return;
     }
 
-    if (arg_equ(1, "--make-proj") || arg_equ(1, "-mp")) {
+    if (ArgEqu(1, "--make-proj") || ArgEqu(1, "-mp")) {
         if (program.argc < 4) {
             log_err("Missing path to put the project for --make-proj command && project name");
             quit(Err);
@@ -70,7 +70,7 @@ void run_program(void) {
         return;
     }
 
-    if (arg_equ(1, "--make-script") || arg_equ(1, "-ms")) {
+    if (ArgEqu(1, "--make-script") || ArgEqu(1, "-ms")) {
         if (program.argc < 4) {
             log_err("Missing path to project root to put the script for --make-script command && script name");
             quit(Err);
@@ -87,7 +87,7 @@ void run_program(void) {
         return;
     }
 
-    if (arg_equ(1, "--make-scene") || arg_equ(1, "-msc")) {
+    if (ArgEqu(1, "--make-scene") || ArgEqu(1, "-msc")) {
         if (program.argc < 4) {
             log_err("Missing path to project root to put the scene for --make-scene command && scene name");
             quit(Err);
@@ -104,7 +104,7 @@ void run_program(void) {
         return;
     }
 
-    if (arg_equ(1, "--make-ui-doc") || arg_equ(1, "-mud")) {
+    if (ArgEqu(1, "--make-ui-doc") || ArgEqu(1, "-mud")) {
         if (program.argc < 4) {
             log_err("Missing path to project root to put the ui doc for --make-ui-doc command && doc name");
             quit(Err);
@@ -121,7 +121,7 @@ void run_program(void) {
         return;
     }
 
-    if (arg_equ(1, "--pack") || arg_equ(1, "-p")) {
+    if (ArgEqu(1, "--pack") || ArgEqu(1, "-p")) {
         if (program.argc < 4) {
             log_err("Missing source directory and archive path for --pack command");
             quit(Err);
@@ -138,7 +138,7 @@ void run_program(void) {
         return;
     }
 
-    if (arg_equ(1, "--unpack") || arg_equ(1, "-u")) {
+    if (ArgEqu(1, "--unpack") || ArgEqu(1, "-u")) {
         if (program.argc < 4) {
             log_err("Missing archive path and destination directory for --unpack command");
             quit(Err);
@@ -157,5 +157,5 @@ void run_program(void) {
 
     log_err("Unknown command '%s'", program.argv[1]);
 
-#undef arg_equ
+#undef ArgEqu
 }

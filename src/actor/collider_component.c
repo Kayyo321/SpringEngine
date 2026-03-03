@@ -5,7 +5,7 @@
 #include <string.h>
 
 ColliderComponentData *actor_find_collider_component(Actor *actor) {
-    return actor_find_builtin_component_data_as(actor, "Collider", ColliderComponentData);
+    return ActorFindBuiltinComponentDataAs(actor, "Collider", ColliderComponentData);
 }
 
 static boolean resolve_animated_sprite_frame_size(const AnimatedSpriteState *state, float *out_width, float *out_height) {

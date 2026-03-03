@@ -1,5 +1,5 @@
-#ifndef COMMON_H
-#define COMMON_H
+#ifndef CommonH
+#define CommonH
 
 #define Version "0.1.0"
 
@@ -54,10 +54,10 @@ void deallocate(Heap heap);
 
 result scan_and_deallocate(void); // returns Err if any leaked bytes are reclaimed, otherwise Ok
 
-#if !defined(COMMON_ALLOW_STDLIB_ALLOCATORS)
-#define malloc(...) SPRINGENGINE_USE_allocate_INSTEAD_OF_malloc
-#define realloc(...) SPRINGENGINE_USE_reallocate_INSTEAD_OF_realloc
-#define free(...) SPRINGENGINE_USE_deallocate_INSTEAD_OF_free
+#if !defined(CommonAllowStdlibAllocators)
+#define malloc(...) SpringengineUseAllocateInsteadOfMalloc
+#define realloc(...) SpringengineUseReallocateInsteadOfRealloc
+#define free(...) SpringengineUseDeallocateInsteadOfFree
 #endif
 
 #endif // COMMON_H

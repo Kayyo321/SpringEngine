@@ -1,5 +1,5 @@
-#ifndef TARHEADER_H
-#define TARHEADER_H
+#ifndef TarHeaderH
+#define TarHeaderH
 
 #include "common.h"
 

@@ -1,5 +1,5 @@
-#ifndef UI_RUNTIME_H
-#define UI_RUNTIME_H
+#ifndef UiRuntimeH
+#define UiRuntimeH
 
 #include "common.h"
 #include "script/script_runtime.h"

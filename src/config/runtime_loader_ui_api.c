@@ -1,7 +1,7 @@
 #include "runtime_loader_internal.h"
 
 result runtime_ui_node_exists(const char *document_id, const char *node_id) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!document_id || !node_id)
         return Err;
 
@@ -9,7 +9,7 @@ result runtime_ui_node_exists(const char *document_id, const char *node_id) {
 }
 
 result runtime_ui_set_visible(const char *document_id, const char *node_id, boolean visible) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!document_id || !node_id)
         return Err;
 
@@ -17,7 +17,7 @@ result runtime_ui_set_visible(const char *document_id, const char *node_id, bool
 }
 
 result runtime_ui_set_text(const char *document_id, const char *node_id, const char *text) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!document_id || !node_id || !text)
         return Err;
 
@@ -25,7 +25,7 @@ result runtime_ui_set_text(const char *document_id, const char *node_id, const c
 }
 
 result runtime_ui_push_document(const char *document_path) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!document_path)
         return Err;
 
@@ -33,7 +33,7 @@ result runtime_ui_push_document(const char *document_path) {
 }
 
 result runtime_ui_pop_document(const char *document_id) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!document_id)
         return Err;
 
@@ -41,7 +41,7 @@ result runtime_ui_pop_document(const char *document_id) {
 }
 
 result runtime_ui_set_document_layer(const char *document_id, int layer) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!document_id)
         return Err;
 
@@ -49,7 +49,7 @@ result runtime_ui_set_document_layer(const char *document_id, int layer) {
 }
 
 result runtime_ui_bring_document_to_front(const char *document_id) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!document_id)
         return Err;
 
@@ -57,7 +57,7 @@ result runtime_ui_bring_document_to_front(const char *document_id) {
 }
 
 result runtime_ui_send_document_to_back(const char *document_id) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!document_id)
         return Err;
 
@@ -65,7 +65,7 @@ result runtime_ui_send_document_to_back(const char *document_id) {
 }
 
 result runtime_ui_get_document_count(usize *out_count) {
-    RUNTIME_GUARD_UI_ERR();
+    RuntimeGuardUiErr();
     if (!out_count)
         return Err;
 
@@ -73,7 +73,7 @@ result runtime_ui_get_document_count(usize *out_count) {
 }
 
 const char *runtime_ui_get_document_id_at(usize index) {
-    RUNTIME_GUARD_UI_NULL();
+    RuntimeGuardUiNull();
 
     const char *document_id = Null;
     if (ui_runtime_get_document_id_at(runtime_state.ui_runtime, index, &document_id) != Ok)

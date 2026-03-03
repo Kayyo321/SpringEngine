@@ -1,5 +1,5 @@
-#ifndef DH_H
-#define DH_H
+#ifndef DjH
+#define DjH
 
 #include "common.h"
 
