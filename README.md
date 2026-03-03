@@ -1,63 +1,46 @@
 # SpringEngine
 
-SpringEngine is a game runtime, not a game-specific executable.
+SpringEngine is a runtime for games, not a single game executable.
 
-You install SpringEngine once on your system (similar to a language runtime), then run separately downloaded games that target the SpringEngine runtime.
+The goal is the same spirit as Java’s “write once, run anywhere” ideology:
 
-## Vision
+- Game creators build against one stable runtime contract.
+- Players install SpringEngine once.
+- The same packaged game should run anywhere SpringEngine runs.
 
-- SpringEngine is distributed as a standalone runtime executable.
-- Games are distributed separately from the engine.
-- A game package contains game logic modules + assets, and is executed by an installed SpringEngine runtime.
-- SpringEngine provides the platform layer (windowing, rendering, input, audio, filesystem, lifecycle).
-- Game packages provide gameplay code and content.
-
-## Runtime Model
+## Runtime 
 
 - Runtime binary: `springengine`
-- Game target: packaged project (assets + Lua scripts + metadata)
-- Optional extension target: loadable native module (e.g., `.dylib` on macOS)
-- Contract: stable engine API and script API versioning
-- Execution flow:
-	1. User installs SpringEngine.
-	2. User downloads a SpringEngine-compatible game package.
-	3. User runs the game through SpringEngine.
+- Game input: project folder or `.targame`
+- Optional extension model: native module loading (platform dependent)
 
-## Unity-Like Direction (Lua-Based)
+Execution flow:
 
-SpringEngine aims for a Unity-style authoring model, with Lua as the primary scripting language instead of C#.
+1. Install SpringEngine.
+2. Download a SpringEngine-compatible game package.
+3. Run it with SpringEngine.
 
-- **Scenes**: authored as data files that define objects, transforms, and attached components.
-- **Entities + Components**: runtime objects are composed from reusable components.
-- **Script Components**: behavior is defined in Lua scripts attached to entities.
-- **Lifecycle Hooks**: scripts use hooks similar to `Awake`, `Start`, `Update`, `OnDestroy`.
-- **Prefabs**: reusable object templates serialized as data.
-- **Engine Systems**: rendering, physics, input, audio, and resource loading remain native (C).
+## Lua-First Gameplay Direction
 
-### Lua Scripting Role
+SpringEngine follows a Unity-like composition approach with Lua as the default gameplay language.
 
-- Lua is the default gameplay language.
-- Runtime embeds Lua and exposes a curated API surface (transform, input, audio, scene queries, logging, spawning/despawning, etc.).
-- Game packages primarily ship Lua scripts and content files.
-- Native modules are optional for performance-critical or platform-specific features.
+- Scenes define entities/components.
+- Scripts provide behavior hooks (`awake`, `start`, `update`, `on_destroy` style lifecycle).
+- Prefabs enable reusable actor templates.
+- Runtime systems (rendering, audio, input, physics-facing integration) remain native C.
 
-### Lua Engine Imports
-
-SpringEngine runtime modules are imported explicitly from Lua (not injected as globals).
-
-Example:
+Typical imports:
 
 ```lua
 local Engine = require("Engine")
 local Input = require("Engine.Input")
 local Time = require("Engine.Time")
-local Transform = require("Engine.Transform")
 local Scene = require("Engine.Scene")
 ```
 
-Available modules:
+Current module surface includes:
 
-- `Engine` (root utilities: logging, version, module access)
+- `Engine`
 - `Engine.Input`
 - `Engine.Time`
 - `Engine.Transform`
@@ -67,128 +50,51 @@ Available modules:
 - `Engine.DJ`
 - `Engine.UI`
 
-### Time API (Lua)
+## Current Project Priorities
 
-`Engine.Time` currently supports:
+- Right now, this is just a proof of concept, there isn't really a 
+  springengine project gui editor, so all your `.conf` files have to be edited
+  manually :|. I've cobbled together a game this way in `example-project` if you 
+  want to dig around to find out how the conf system works.
+- Strengthen runtime/package compatibility boundaries.
+- Keep engine/game deliverables cleanly separated.
+- Expand Lua API while preserving stability.
+- Improve package execution reliability for both folder and `.targame` flows.
+- Continue config-first architecture work.
 
-- Frame values: `delta_time()`, `unscaled_delta_time()`, `elapsed_time()`, `unscaled_elapsed_time()`
-- Runtime metrics: `since_startup()`, `fps()`, `frame_count()`
-- Time controls: `time_scale()`, `set_time_scale(value)`, `is_paused()`, `set_paused(value)`, `pause()`, `resume()`
-- Step controls: `max_delta_time()`, `set_max_delta_time(value)`, `fixed_delta_time()`, `set_fixed_delta_time(value)`
-- Utility helpers: `seconds(x)`, `milliseconds(x)`, `minutes(x)`, `hours(x)`, `clamp(v, min, max)`, `lerp(a, b, t)`, `move_towards(current, target, max_delta)`
+Related design docs:
 
-### Scene API (Lua)
+- `docs/config-system-vision.md`
+- `docs/ui-system-vision.md`
+- `docs/lighting-system-vision.md`
+- `docs/child-actor-system-vision.md`
 
-`Engine.Scene` currently supports:
+## Build and Run
 
-- `find_by_id(actor_id)`
-- `find_first_by_layer(layer, include_disabled?)`
-- `find_all_by_layer(layer, include_disabled?)`
-- `actor_count(include_disabled?)`
-- `load(scene_path)` (deferred to next frame boundary)
-- `current()`
+This projects uses the libraries in `/lib` which contains source code for all of the
+libraries. You need to build those to static libraries first before building the 
+springengine executable. There's a helper for this: `rebuild_libs.sh`
 
-`Scene.load(...)` expects a path relative to `Paths.scenes_dir` (or absolute path).
-
-### UI API (Lua)
-
-`Engine.UI` currently supports:
-
-- `find(document_id, node_id)`
-- `set_visible(handle, visible)`
-- `set_text(handle, text)`
-- `push_document(path)`
-- `pop_document(document_id)`
-- `set_document_layer(document_id, layer)`
-- `bring_to_front(document_id)`
-- `send_to_back(document_id)`
-- `current_documents()`
-
-### Cleanup Verification
-
-SpringEngine already performs global heap cleanup verification on exit through `scan_and_deallocate()` in `src/common.c`.
-
-- If leaked allocations exist, each leaked block is logged (`Memory leak detected: ...`).
-- Any recovered leak forces a non-zero exit code.
-- `make test` includes allocator coverage and exercises this path.
-
-For practical verification, run `make test` and inspect `logs/log0-last.log` for leak lines.
-
-### API Stability Strategy
-
-- Version the runtime API exposed to Lua.
-- Include required engine API version in each game package manifest.
-- Reject package load when versions are incompatible, with clear diagnostics.
-
-### Suggested Milestones
-
-1. Embed Lua runtime and execute a boot script from a game package.
-2. Implement scene loader (JSON/TOML/YAML) and entity/component instantiation.
-3. Add script component lifecycle (`Awake`, `Start`, `Update`, `OnDestroy`).
-4. Expose core engine API bindings to Lua (input, transform, drawing, audio, time).
-5. Add prefab support and package manifest version checks.
-6. Add optional native extension interface for advanced modules.
-
-## Long-Term Direction
-
-- Keep engine/runtime and game code as separate deliverables.
-- Version and validate API compatibility at launch.
-- Provide an SDK surface for game developers to build SpringEngine-compatible games.
-- Prioritize Lua-first gameplay authoring and tooling.
-
-## Config-First Roadmap
-
-- See `docs/config-system-vision.md` for the full `.conf`-driven architecture (project config, scenes, actor data, prefabs, and persistence model).
-- See `docs/ui-system-vision.md` for a matching config-driven UI architecture (themes, documents, widget trees, bindings, and runtime lifecycle).
-- See `docs/lighting-system-vision.md` for scene-driven lighting architecture (`global.lighting.conf`, per-scene `*.lighting.conf`, and `lighting.Schema` resolution at scene load).
-- See `docs/child-actor-system-vision.md` for hierarchical actor architecture (nested parent-child actor trees with transform/rigidbody inheritance).
-
-## tomlc17 Setup
-
-- Installed library layout expected by this workspace:
-	- Headers: `lib/tomlc17/include/tomlc17.h`
-	- Static lib: `lib/tomlc17/lib/libtomlc17.a`
-- Build integration is automatic because the Makefile recursively includes all `lib/**` include directories and links all discovered static/shared libraries.
-- Runtime now uses tomlc17 in `src/config/project_config.c` to parse `example-project/springengine.conf` (`[Window]` table).
-
-### VS Code Integration
-
-- IntelliSense configs are in `.vscode/c_cpp_properties.json` with explicit `lib/tomlc17/include` paths.
-- Build/test tasks are in `.vscode/tasks.json`:
-	- `build` → `make`
-	- `test` → `make test`
-- Debug launch configs are in `.vscode/launch.json`:
-	- `Debug SpringEngine`
-	- `Debug SpringEngine Tests`
-
-## C Project Build System
-
-Project layout:
-
-- `src/` → C source and header files
-- `lib/` → prebuilt libraries (`.a`, `.so`, `.dylib`) to link (recursive, static-first)
-- `bin/` → build output binaries
-
-### Commands
+### Build Commands
 
 - Build: `make`
 - Debug build (ASan): `make debug`
-- Run debug with default project: `make run-debug`
-- Run debug with symbolized ASan/LSan output: `make run-debug-symbols`
-- Run debug with symbolized output and SDL leak suppressions: `make run-debug-symbols-sdl-suppressed`
-- Run debug/symbolized with custom project: `make run-debug RUN_PROJECT=./path/to/project/` or `make run-debug-symbols RUN_PROJECT=./path/to/project/`
-- Override suppression file path (optional): `make run-debug-symbols-sdl-suppressed LSAN_SUPPRESSIONS_FILE=./my-lsan-suppressions.txt`
-- Rebuild: `make re`
-- Clean all object files (`.o`): `make clean`
-- Clean objects + binary: `make fclean`
+- Tests: `make test`
+- Clean objects: `make clean`
+- Clean objects + binaries: `make fclean`
 
-### Runtime CLI Commands
+### Runtime Commands
 
-- Show version: `bin/springengine --version` or `bin/springengine -v`
-- Run project: `bin/springengine --run <project_path>` or `bin/springengine -r <project_path>`
-- Create project skeleton: `bin/springengine --make-proj <path_to_put_it> <project_name>` or `bin/springengine -mp <path_to_put_it> <project_name>`
-- Create script in `<project_root>/scripts`: `bin/springengine --make-script <project_root> <script_name>` or `bin/springengine -ms <project_root> <script_name>`
-- Create scene + scene data in project root: `bin/springengine --make-scene <project_root> <scene_name>` or `bin/springengine -msc <project_root> <scene_name>`
-- Create UI document in `<project_root>/ui`: `bin/springengine --make-ui-doc <project_root> <doc_name>` or `bin/springengine -mud <project_root> <doc_name>`
+- Version: `bin/springengine --version`
+- Run project folder/archive: `bin/springengine --run <project_or_archive_path>`
+- Pack folder to archive: `bin/springengine --pack <source_directory> <archive.targame>`
+- Unpack archive: `bin/springengine --unpack <archive.targame> <destination_directory>`
 
-By default, the binary is generated at `bin/springengine`.
+Scaffolding helpers:
+
+- `--make-proj <path_to_put_it> <project_name>`
+- `--make-script <project_root> <script_name>`
+- `--make-scene <project_root> <scene_name>`
+- `--make-ui-doc <project_root> <doc_name>`
+
+Thanks :)
