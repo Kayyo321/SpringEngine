@@ -1,12 +1,21 @@
 # SpringEngine
 
-SpringEngine is a runtime for games, not a single game executable.
-
-The goal is the same spirit as Java’s “write once, run anywhere” ideology:
-
-- Game creators build against one stable runtime contract.
-- Players install SpringEngine once.
-- The same packaged game should run anywhere SpringEngine runs.
+<table>
+  <tr>
+    <td valign="top" width="45%">
+      <img src="imgs/springengine-ex.gif" alt="SpringEngine example" />
+    </td>
+    <td valign="top" style="font-size: 150%;">
+      <p>SpringEngine is a runtime for games, not a single game executable.</p>
+      <p>The goal is the same spirit as Java’s “write once, run anywhere” ideology:</p>
+      <ul>
+        <li>Game creators build against one stable runtime contract.</li>
+        <li>Players install SpringEngine once.</li>
+        <li>The same packaged game should run anywhere SpringEngine runs.</li>
+      </ul>
+    </td>
+  </tr>
+</table>
 
 ## Runtime 
 
