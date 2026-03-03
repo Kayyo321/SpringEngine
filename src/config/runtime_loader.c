@@ -11,6 +11,7 @@
 #include "project_config.h"
 #include "script/script_runtime.h"
 #include "ui/ui_runtime.h"
+#include "vfs.h"
 #include "windowman/windowman.h"
 
 #include "tomlc17.h"
@@ -145,8 +146,8 @@ static result texture_cache_acquire(const char *resolved_texture_path, Texture2D
         return Ok;
     }
 
-    Texture2D loaded_texture = LoadTexture(resolved_texture_path);
-    if (loaded_texture.id == 0)
+    Texture2D loaded_texture = {0};
+    if (vfs_load_texture(resolved_texture_path, &loaded_texture) != Ok)
         return Err;
 
     if (ensure_shared_texture_capacity(shared_texture_entry_count + 1) != Ok) {
@@ -637,13 +638,13 @@ static result resolve_prefab_path_from_ref(const char *prefab_ref_id, char *out_
         }
     }
 
-    if (join_path(runtime_state.prefabs_root, resolved_ref_path, out_prefab_path, out_prefab_path_size) == Ok && access(out_prefab_path, F_OK) == 0)
+    if (join_path(runtime_state.prefabs_root, resolved_ref_path, out_prefab_path, out_prefab_path_size) == Ok && vfs_file_exists(out_prefab_path) == True)
         return Ok;
 
     if (join_path(runtime_state.project_root, resolved_ref_path, out_prefab_path, out_prefab_path_size) != Ok)
         return Err;
 
-    return access(out_prefab_path, F_OK) == 0 ? Ok : Err;
+    return vfs_file_exists(out_prefab_path) == True ? Ok : Err;
 }
 
 static boolean pending_prefab_actor_id_exists(const char *actor_id) {
@@ -886,14 +887,14 @@ static result read_prefab_transform_anchor(toml_datum_t actor_table, toml_datum_
     if (join_path(prefabs_root, prefab_path_ref.u.s, prefab_path, sizeof(prefab_path)) != Ok)
         return Err;
 
-    if (access(prefab_path, F_OK) != 0) {
+    if (vfs_file_exists(prefab_path) != True) {
         if (!runtime_state.project_root[0])
             return Err;
 
         if (join_path(runtime_state.project_root, prefab_path_ref.u.s, prefab_path_from_project_root, sizeof(prefab_path_from_project_root)) != Ok)
             return Err;
 
-        if (access(prefab_path_from_project_root, F_OK) != 0)
+        if (vfs_file_exists(prefab_path_from_project_root) != True)
             return Err;
 
         if (snprintf(prefab_path, sizeof(prefab_path), "%s", prefab_path_from_project_root) >= (int)sizeof(prefab_path))
@@ -2234,24 +2235,8 @@ static boolean has_conf_extension(const char *file_name) {
     return strcmp(file_name + (name_len - suffix_len), suffix) == 0;
 }
 
-static boolean is_absolute_path(const char *path) {
-    return path && path[0] == '/';
-}
-
 static result join_path(const char *base, const char *path, char *out_path, usize out_size) {
-    if (!base || !path || !out_path || out_size == 0)
-        return Err;
-
-    if (is_absolute_path(path)) {
-        if (snprintf(out_path, out_size, "%s", path) >= (int)out_size)
-            return Err;
-        return Ok;
-    }
-
-    if (snprintf(out_path, out_size, "%s/%s", base, path) >= (int)out_size)
-        return Err;
-
-    return Ok;
+    return vfs_resolve_path(base, path, out_path, out_size);
 }
 
 static result parent_directory(const char *path, char *out_dir, usize out_size) {
@@ -2285,10 +2270,9 @@ static result parse_toml_file(const char *path, toml_result_t *out_parsed) {
     if (!path || !out_parsed)
         return Err;
 
-    toml_result_t parsed = toml_parse_file_ex(path);
-    if (!parsed.ok) {
-        log_err("Failed to parse config '%s': %s", path, parsed.errmsg);
-        toml_free(parsed);
+    toml_result_t parsed = {0};
+    if (vfs_parse_toml_file(path, &parsed) != Ok) {
+        log_err("Failed to parse config '%s'", path);
         return Err;
     }
 
@@ -2299,6 +2283,15 @@ static result parse_toml_file(const char *path, toml_result_t *out_parsed) {
 static result validate_conf_files(const char *directory_path, usize *out_conf_count) {
     if (!directory_path || !out_conf_count)
         return Err;
+
+    if (vfs_is_archive_mode()) {
+        usize conf_count = 0;
+        if (vfs_count_conf_files(&conf_count) != Ok)
+            return Err;
+
+        *out_conf_count = conf_count;
+        return Ok;
+    }
 
     DIR *directory = opendir(directory_path);
     if (!directory) {
@@ -4322,18 +4315,25 @@ result run_project_runtime(const char *project_path) {
     boolean project_ok = False;
     boolean window_opened = False;
 
-    struct stat project_stat = {0};
-    if (!project_path || stat(project_path, &project_stat) != 0 || !S_ISDIR(project_stat.st_mode)) {
-        log_err("Project path '%s' is not a valid directory", project_path ? project_path : "<null>");
+    if (!project_path || project_path[0] == '\0') {
+        log_err("Project path is missing");
+        return Err;
+    }
+
+    if (vfs_mount_project(project_path) != Ok) {
+        log_err("Project path '%s' is not a valid directory or .targame archive", project_path ? project_path : "<null>");
         return Err;
     }
 
     usize conf_count = 0;
-    if (validate_conf_files(project_path, &conf_count) != Ok)
+    if (validate_conf_files(project_path, &conf_count) != Ok) {
+        vfs_unmount();
         return Err;
+    }
 
     if (conf_count == 0) {
         log_err("No .conf files found under '%s'", project_path);
+        vfs_unmount();
         return Err;
     }
 
@@ -4342,22 +4342,27 @@ result run_project_runtime(const char *project_path) {
     char springengine_config_path[PATH_MAX] = {0};
     if (join_path(project_path, "springengine.conf", springengine_config_path, sizeof(springengine_config_path)) != Ok) {
         log_err("Failed to resolve springengine.conf path for '%s'", project_path);
+        vfs_unmount();
         return Err;
     }
 
-    if (access(springengine_config_path, F_OK) != 0) {
+    if (vfs_file_exists(springengine_config_path) != True) {
         log_err("Required config missing: '%s'", springengine_config_path);
+        vfs_unmount();
         return Err;
     }
 
     WindowConfig window_config = DefaultWindowConfig;
     if (load_project_window_config(springengine_config_path, &window_config) != Ok) {
         log_err("Failed to load required window settings from '%s'", springengine_config_path);
+        vfs_unmount();
         return Err;
     }
 
-    if (parse_toml_file(springengine_config_path, &project_toml) != Ok)
+    if (parse_toml_file(springengine_config_path, &project_toml) != Ok) {
+        vfs_unmount();
         return Err;
+    }
     project_ok = True;
 
     toml_datum_t boot_table = toml_get(project_toml.toptab, "Boot");
@@ -4503,6 +4508,7 @@ result run_project_runtime(const char *project_path) {
     if (project_ok)
         toml_free(project_toml);
 
+    vfs_unmount();
     return Ok;
 
 fail:
@@ -4542,5 +4548,6 @@ fail:
     if (project_ok)
         toml_free(project_toml);
 
+    vfs_unmount();
     return Err;
 }

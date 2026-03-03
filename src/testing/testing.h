@@ -14,6 +14,7 @@ void run_ui_runtime_tests(void);
 void run_runtime_loader_tests(void);
 void run_script_runtime_tests(void);
 void run_window_tests(void);
+void run_vfs_and_packer_tests(void);
 
 void run_all_tests(void);
 

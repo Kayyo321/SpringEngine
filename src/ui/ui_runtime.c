@@ -1,5 +1,7 @@
 #include "ui_runtime.h"
 
+#include "vfs.h"
+
 #include "windowman/windowman.h"
 
 #include <limits.h>
@@ -1147,8 +1149,7 @@ static void try_load_widget_texture(UiWidget *widget) {
         return;
 
     widget->texture_attempted = True;
-    widget->texture = LoadTexture(widget->resolved_texture_path);
-    if (widget->texture.id == 0) {
+    if (vfs_load_texture(widget->resolved_texture_path, &widget->texture) != Ok) {
         log_err("Failed to load UI texture '%s'", widget->resolved_texture_path);
         return;
     }
@@ -1218,29 +1219,16 @@ static boolean point_in_rect(Vector2 point, UiRect rect) {
 }
 
 static result join_path(const char *base, const char *path, char *out_path, usize out_size) {
-    if (!base || !path || !out_path || out_size == 0)
-        return Err;
-
-    if (path[0] == '/') {
-        if (snprintf(out_path, out_size, "%s", path) >= (int)out_size)
-            return Err;
-        return Ok;
-    }
-
-    if (snprintf(out_path, out_size, "%s/%s", base, path) >= (int)out_size)
-        return Err;
-
-    return Ok;
+    return vfs_resolve_path(base, path, out_path, out_size);
 }
 
 static result parse_toml_file(const char *path, toml_result_t *out_parsed) {
     if (!path || !out_parsed)
         return Err;
 
-    toml_result_t parsed = toml_parse_file_ex(path);
-    if (!parsed.ok) {
-        log_err("Failed to parse config '%s': %s", path, parsed.errmsg);
-        toml_free(parsed);
+    toml_result_t parsed = {0};
+    if (vfs_parse_toml_file(path, &parsed) != Ok) {
+        log_err("Failed to parse config '%s'", path);
         return Err;
     }
 

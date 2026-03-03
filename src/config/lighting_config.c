@@ -1,4 +1,5 @@
 #include "lighting_config.h"
+#include "vfs.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -20,21 +21,7 @@ static boolean string_equals_ignore_case(const char *left, const char *right) {
 }
 
 static result join_path(const char *base, const char *path, char *out_path, usize out_size) {
-    if (!base || !path || !out_path || out_size == 0)
-        return Err;
-
-    const usize base_len = strlen(base);
-    const usize path_len = strlen(path);
-    const boolean needs_separator = (base_len > 0 && base[base_len - 1] != '/');
-    const usize required = base_len + (needs_separator ? 1 : 0) + path_len + 1;
-
-    if (required > out_size)
-        return Err;
-
-    if (snprintf(out_path, out_size, "%s%s%s", base, needs_separator ? "/" : "", path) >= (int)out_size)
-        return Err;
-
-    return Ok;
+    return vfs_resolve_path(base, path, out_path, out_size);
 }
 
 static result copy_name(char *out_name, usize out_size, const char *name) {
@@ -106,10 +93,9 @@ result lighting_load_global_config(const char *project_root, LightingGlobalConfi
         return Err;
     }
 
-    toml_result_t parsed = toml_parse_file_ex(global_lighting_path);
-    if (!parsed.ok) {
-        log_err("Failed to parse global lighting config '%s': %s", global_lighting_path, parsed.errmsg);
-        toml_free(parsed);
+    toml_result_t parsed = {0};
+    if (vfs_parse_toml_file(global_lighting_path, &parsed) != Ok) {
+        log_err("Failed to parse global lighting config '%s'", global_lighting_path);
         return Err;
     }
 
@@ -284,13 +270,12 @@ result lighting_resolve_scene_selection(
             return Err;
     }
 
-    toml_result_t lighting_parsed = toml_parse_file_ex(out_selection->file_path);
-    if (!lighting_parsed.ok) {
+    toml_result_t lighting_parsed = {0};
+    if (vfs_parse_toml_file(out_selection->file_path, &lighting_parsed) != Ok) {
         if (global_config->allow_missing_scene_lighting)
             return Ok;
 
-        log_err("Failed to parse lighting file '%s': %s", out_selection->file_path, lighting_parsed.errmsg);
-        toml_free(lighting_parsed);
+        log_err("Failed to parse lighting file '%s'", out_selection->file_path);
         return Err;
     }
 

@@ -1,5 +1,7 @@
 #include "dj.h"
 
+#include "vfs.h"
+
 #include "raylib.h"
 
 #include <string.h>
@@ -476,7 +478,9 @@ void load_sound_source_as_with_volume(DJ *dj, const char *path, const char *alia
     if (!dj || !path || !alias)
         return;
 
-    Sound sound = LoadSound(path);
+    Sound sound = {0};
+    if (vfs_load_sound(path, &sound) != Ok)
+        return;
 
     stop_sound_channels_for_alias(dj, alias);
     if (sound_map_set(&dj->sound_aliases, alias, sound, default_volume) != Ok) {
@@ -561,7 +565,9 @@ void load_music_source_as_with_volume(DJ *dj, const char *path, const char *alia
     if (!dj || !path || !alias)
         return;
 
-    Music music = LoadMusicStream(path);
+    Music music = {0};
+    if (vfs_load_music(path, &music) != Ok)
+        return;
 
     stop_music_channels_for_alias(dj, alias);
     if (music_map_set(&dj->music_aliases, alias, music, default_volume) != Ok) {

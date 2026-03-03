@@ -1,5 +1,7 @@
 #include "script_runtime_internal.h"
 
+#include "vfs.h"
+
 typedef struct {
     Heap heap;
     char module_path[PATH_MAX];
@@ -16,20 +18,7 @@ static const char *RUNTIME_REGISTRY_KEY = "__springengine_runtime";
 static const char *CURRENT_ACTOR_REGISTRY_KEY = "__springengine_current_actor";
 
 result runtime_join_path(const char *base, const char *path, char *out_path, usize out_size) {
-    if (!base || !path || !out_path || out_size == 0)
-        return Err;
-
-    if (path[0] == '/') {
-        if (snprintf(out_path, out_size, "%s", path) >= (int)out_size)
-            return Err;
-
-        return Ok;
-    }
-
-    if (snprintf(out_path, out_size, "%s/%s", base, path) >= (int)out_size)
-        return Err;
-
-    return Ok;
+    return vfs_resolve_path(base, path, out_path, out_size);
 }
 
 Actor *lua_runtime_current_actor(lua_State *lua_state) {
@@ -193,6 +182,27 @@ static boolean table_has_function(lua_State *lua_state, int table_index, const c
     const boolean has_function = lua_isfunction(lua_state, -1) ? True : False;
     lua_pop(lua_state, 1);
     return has_function;
+}
+
+static result lua_load_script_from_vfs(lua_State *lua_state, const char *script_path) {
+    if (!lua_state || !script_path || script_path[0] == '\0')
+        return Err;
+
+    Heap script_heap = NullHeap;
+    if (vfs_read_file_bytes(script_path, &script_heap) != Ok) {
+        log_err("Failed to read Lua script '%s'", script_path);
+        return Err;
+    }
+
+    char chunk_name[PATH_MAX + 2] = {0};
+    if (snprintf(chunk_name, sizeof(chunk_name), "@%s", script_path) >= (int)sizeof(chunk_name)) {
+        deallocate(script_heap);
+        return Err;
+    }
+
+    const int load_result = luaL_loadbufferx(lua_state, (const char *)script_heap.pointer, script_heap.size, chunk_name, Null);
+    deallocate(script_heap);
+    return load_result == LUA_OK ? Ok : Err;
 }
 
 static const char *resolve_component_name_alias(const char *component_name) {
@@ -1161,7 +1171,7 @@ result script_component_initialize(Actor *actor, ActorComponent *component, void
 
     lua_State *lua_state = runtime->lua_state;
 
-    if (luaL_loadfile(lua_state, script_path) != LUA_OK) {
+    if (lua_load_script_from_vfs(lua_state, script_path) != Ok) {
         const char *error_message = lua_tostring(lua_state, -1);
         log_err("Failed to load Lua script '%s': %s", script_path, error_message ? error_message : "<unknown error>");
         lua_pop(lua_state, 1);
@@ -1271,7 +1281,7 @@ result script_runtime_invoke_ui_callback(ScriptRuntime *runtime, const char *cal
 
     lua_State *lua_state = runtime->lua_state;
 
-    if (luaL_loadfile(lua_state, resolved_script_path) != LUA_OK) {
+    if (lua_load_script_from_vfs(lua_state, resolved_script_path) != Ok) {
         const char *error_message = lua_tostring(lua_state, -1);
         log_err("Failed to load UI callback script '%s': %s", resolved_script_path, error_message ? error_message : "<unknown error>");
         lua_pop(lua_state, 1);

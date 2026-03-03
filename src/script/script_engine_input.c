@@ -1,4 +1,5 @@
 #include "script_runtime_internal.h"
+#include "vfs.h"
 
 #include <ctype.h>
 
@@ -253,15 +254,14 @@ result load_input_config(const char *project_root) {
     reset_input_config();
 
     char input_config_path[PATH_MAX] = {0};
-    if (snprintf(input_config_path, sizeof(input_config_path), "%s/input.conf", project_root) >= (int)sizeof(input_config_path)) {
+    if (vfs_resolve_path(project_root, "input.conf", input_config_path, sizeof(input_config_path)) != Ok) {
         log_err("Input config path is too long for project '%s'", project_root);
         return Err;
     }
 
-    toml_result_t parsed = toml_parse_file_ex(input_config_path);
-    if (!parsed.ok) {
-        log_err("Failed to parse input config '%s': %s", input_config_path, parsed.errmsg);
-        toml_free(parsed);
+    toml_result_t parsed = {0};
+    if (vfs_parse_toml_file(input_config_path, &parsed) != Ok) {
+        log_err("Failed to parse input config '%s'", input_config_path);
         return Err;
     }
 

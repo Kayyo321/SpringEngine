@@ -38,6 +38,7 @@ void run_all_tests(void) {
     run_runtime_loader_tests();
     run_script_runtime_tests();
     run_window_tests();
+    run_vfs_and_packer_tests();
 
     log_msg("All tests completed. Summary: ran=%d passed=%d failed=%d", tests_ran, tests_passed, tests_failed);
 #endif // TESTING

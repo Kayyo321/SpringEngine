@@ -1,4 +1,5 @@
 #include "project_config.h"
+#include "vfs.h"
 
 #include "tomlc17.h"
 
@@ -54,10 +55,9 @@ result load_project_window_config(const char *config_path, WindowConfig *out_con
 
     *out_config = DefaultWindowConfig;
 
-    toml_result_t parsed = toml_parse_file_ex(config_path);
-    if (!parsed.ok) {
-        log_warn("Config parse failed for '%s': %s", config_path, parsed.errmsg);
-        toml_free(parsed);
+    toml_result_t parsed = {0};
+    if (vfs_parse_toml_file(config_path, &parsed) != Ok) {
+        log_warn("Config parse failed for '%s'", config_path);
         return Err;
     }
 

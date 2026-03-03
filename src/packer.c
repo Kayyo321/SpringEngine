@@ -540,6 +540,12 @@ result pack_directory_to_targame(const char *source_directory, const char *archi
         return Err;
     }
 
+    char archive_parent[PATH_MAX] = {0};
+    if (parent_directory(archive_path, archive_parent, sizeof(archive_parent)) == Ok) {
+        if (ensure_directory_recursive(archive_parent) != Ok)
+            return Err;
+    }
+
     FILE *archive = fopen(archive_path, "wb");
     if (!archive) {
         log_err("Failed to create archive '%s'", archive_path);
