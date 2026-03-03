@@ -29,5 +29,7 @@ typedef struct {
 
 boolean is_zero_block(const unsigned char *block, usize block_size);
 boolean is_zero_block_vfs(const unsigned char *data, usize offset, usize data_size);
+unsigned long long tar_parse_octal_field(const char *field, usize field_size);
+result tar_read_entry_path(const TarHeader *header, char *out_path, usize out_size);
 
 #endif //TARHEADER_H

@@ -55,57 +55,6 @@ typedef struct {
 
 static VfsState vfs_state = {0};
 
-static boolean has_targame_extension(const char *path) {
-    return path_has_extension(path, ".targame");
-}
-
-static unsigned long long parse_octal_field(const char *field, usize field_size) {
-    if (!field || field_size == 0)
-        return 0;
-
-    unsigned long long value = 0;
-    usize index = 0;
-
-    while (index < field_size && (field[index] == ' ' || field[index] == '\0'))
-        ++index;
-
-    for (; index < field_size; ++index) {
-        char ch = field[index];
-        if (ch < '0' || ch > '7')
-            break;
-        value = (value << 3) + (unsigned long long)(ch - '0');
-    }
-
-    return value;
-}
-
-static result read_tar_entry_path(const TarHeader *header, char *out_path, usize out_size) {
-    if (!header || !out_path || out_size == 0)
-        return Err;
-
-    char name[101] = {0};
-    char prefix[156] = {0};
-    memcpy(name, header->name, sizeof(header->name));
-    memcpy(prefix, header->prefix, sizeof(header->prefix));
-
-    char raw_path[PATH_MAX] = {0};
-    if (prefix[0] != '\0') {
-        if (snprintf(raw_path, sizeof(raw_path), "%s/%s", prefix, name) >= (int)sizeof(raw_path))
-            return Err;
-    } else {
-        if (snprintf(raw_path, sizeof(raw_path), "%s", name) >= (int)sizeof(raw_path))
-            return Err;
-    }
-
-    if (normalize_relative_path(raw_path, out_path, out_size) != Ok)
-        return Err;
-
-    if (path_has_unsafe_components(out_path))
-        return Err;
-
-    return Ok;
-}
-
 static result ensure_entry_capacity(usize needed) {
     if (needed <= vfs_state.entry_capacity)
         return Ok;
@@ -297,15 +246,22 @@ static result mount_archive_file(const char *archive_path) {
         TarHeader header;
         memcpy(&header, archive_bytes + offset, sizeof(header));
 
+        char raw_entry_path[PATH_MAX] = {0};
+        if (tar_read_entry_path(&header, raw_entry_path, sizeof(raw_entry_path)) != Ok) {
+            deallocate(archive_heap);
+            log_err("Invalid archive entry path in '%s'", archive_path);
+            return Err;
+        }
+
         char entry_path[PATH_MAX] = {0};
-        if (read_tar_entry_path(&header, entry_path, sizeof(entry_path)) != Ok) {
+        if (normalize_relative_path(raw_entry_path, entry_path, sizeof(entry_path)) != Ok || path_has_unsafe_components(entry_path)) {
             deallocate(archive_heap);
             log_err("Invalid archive entry path in '%s'", archive_path);
             return Err;
         }
 
         const char typeflag = (header.typeflag == '\0') ? '0' : header.typeflag;
-        const usize data_size = (usize)parse_octal_field(header.size, sizeof(header.size));
+        const usize data_size = (usize)tar_parse_octal_field(header.size, sizeof(header.size));
         const usize data_offset = offset + TarBlockSize;
         if (data_offset + data_size > archive_size) {
             deallocate(archive_heap);
@@ -372,7 +328,7 @@ result vfs_mount_project(const char *project_path) {
         return Ok;
     }
 
-    if (!S_ISREG(st.st_mode) || !has_targame_extension(project_path))
+    if (!S_ISREG(st.st_mode) || !path_is_targame_archive(project_path))
         return Err;
 
     vfs_state.mode = VfsModeArchive;
@@ -592,11 +548,6 @@ result vfs_count_conf_files(usize *out_conf_count) {
     }
 
     return Ok;
-}
-
-static const char *path_extension(const char *path) {
-    const char *dot = path ? strrchr(path, '.') : Null;
-    return dot ? dot : "";
 }
 
 result vfs_load_texture(const char *path, Texture2D *out_texture) {

@@ -191,6 +191,11 @@ result tar_split_path(const char *relative_path, char *out_name, usize out_name_
     return Ok;
 }
 
+const char *path_extension(const char *path) {
+    const char *dot = path ? strrchr(path, '.') : Null;
+    return dot ? dot : "";
+}
+
 boolean path_has_extension(const char *path, const char *extension) {
     if (!path || !extension)
         return False;
@@ -200,6 +205,10 @@ boolean path_has_extension(const char *path, const char *extension) {
         return False;
 
     return strcmp(dot, extension) == 0 ? True : False;
+}
+
+boolean path_is_targame_archive(const char *path) {
+    return path_has_extension(path, ".targame");
 }
 
 boolean path_has_unsafe_components(const char *path) {

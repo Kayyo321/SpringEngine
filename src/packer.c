@@ -203,46 +203,6 @@ static result pack_directory_recursive(FILE *archive, const char *source_root, c
     return Ok;
 }
 
-static unsigned long long parse_octal_field(const char *field, usize field_size) {
-    if (!field || field_size == 0)
-        return 0;
-
-    unsigned long long value = 0;
-    usize index = 0;
-
-    while (index < field_size && (field[index] == ' ' || field[index] == '\0'))
-        ++index;
-
-    for (; index < field_size; ++index) {
-        char ch = field[index];
-        if (ch < '0' || ch > '7')
-            break;
-        value = (value << 3) + (unsigned long long)(ch - '0');
-    }
-
-    return value;
-}
-
-static result read_archive_entry_path(const TarHeader *header, char *out_path, usize out_size) {
-    if (!header || !out_path || out_size == 0)
-        return Err;
-
-    char name[101] = {0};
-    char prefix[156] = {0};
-    memcpy(name, header->name, sizeof(header->name));
-    memcpy(prefix, header->prefix, sizeof(header->prefix));
-
-    if (prefix[0] != '\0') {
-        if (snprintf(out_path, out_size, "%s/%s", prefix, name) >= (int)out_size)
-            return Err;
-    } else {
-        if (snprintf(out_path, out_size, "%s", name) >= (int)out_size)
-            return Err;
-    }
-
-    return Ok;
-}
-
 static result skip_file_data(FILE *archive, unsigned long long file_size) {
     if (!archive)
         return Err;
@@ -393,7 +353,7 @@ result unpack_targame_to_directory(const char *archive_path, const char *destina
             break;
 
         char entry_path[PATH_MAX] = {0};
-        if (read_archive_entry_path(&header, entry_path, sizeof(entry_path)) != Ok) {
+        if (tar_read_entry_path(&header, entry_path, sizeof(entry_path)) != Ok) {
             fclose(archive);
             log_err("Failed to decode archive entry path in '%s'", archive_path);
             return Err;
@@ -412,7 +372,7 @@ result unpack_targame_to_directory(const char *archive_path, const char *destina
             return Err;
         }
 
-        const unsigned long long file_size = parse_octal_field(header.size, sizeof(header.size));
+        const unsigned long long file_size = tar_parse_octal_field(header.size, sizeof(header.size));
         const char typeflag = (header.typeflag == '\0') ? '0' : header.typeflag;
 
         if (typeflag == '5') {
