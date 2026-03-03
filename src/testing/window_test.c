@@ -88,7 +88,7 @@ static void test_callback(void) {
 }
 
 void run_window_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running windowman tests...");
@@ -177,5 +177,5 @@ void run_window_tests(void) {
     windowman_reset_test_hooks();
 
     record_test_result("Windowman tests", failed);
-#endif // TESTING
+#endif // Testing
 }

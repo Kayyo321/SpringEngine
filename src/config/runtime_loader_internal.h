@@ -37,7 +37,7 @@ typedef struct {
     Actor *active_camera_actor;
     boolean dj_enabled;
     boolean active;
-#ifdef SPRINGENGINE_DEBUG
+#ifdef Debug
     boolean debug_show_collider_borders;
     usize debug_selected_collider_index;
 #endif

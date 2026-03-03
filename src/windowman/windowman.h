@@ -19,7 +19,7 @@ typedef struct {
     Color clear_color;
 } WindowConfig;
 
-#ifdef TESTING
+#ifdef Testing
 typedef struct {
     void (*init_window)(int width, int height, const char *title);
     void (*set_window_state)(unsigned int flags);
@@ -30,7 +30,7 @@ typedef struct {
     void (*end_drawing)(void);
     void (*close_window)(void);
 } WindowmanTestHooks;
-#endif // TESTING
+#endif // Testing
 
 extern const WindowConfig DefaultWindowConfig;
 
@@ -39,9 +39,9 @@ boolean update_window(UpdateCallback callback);
 void set_window_clear_color(Color color);
 void close_window(void);
 
-#ifdef TESTING
+#ifdef Testing
 void windowman_set_test_hooks(const WindowmanTestHooks *hooks);
 void windowman_reset_test_hooks(void);
-#endif // TESTING
+#endif // Testing
 
 #endif // WINDOWMAN_H

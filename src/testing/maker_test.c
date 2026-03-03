@@ -86,7 +86,7 @@ static void remove_tree(const char *path) {
 }
 
 void run_maker_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running maker tests...");
@@ -283,5 +283,5 @@ cleanup:
     (void)rmdir(temp_dir);
 
     record_test_result("Maker tests", failed);
-#endif // TESTING
+#endif // Testing
 }

@@ -14,7 +14,7 @@ static boolean nearly_equal(float lhs, float rhs, float tolerance) {
 }
 
 void run_script_runtime_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running script runtime tests...");
@@ -218,5 +218,5 @@ void run_script_runtime_tests(void) {
     }
 
     record_test_result("Script runtime tests", failed);
-#endif // TESTING
+#endif // Testing
 }

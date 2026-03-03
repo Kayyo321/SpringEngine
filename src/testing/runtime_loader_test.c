@@ -5,7 +5,7 @@
 #include "common.h"
 
 void run_runtime_loader_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running runtime loader tests...");
@@ -173,5 +173,5 @@ void run_runtime_loader_tests(void) {
     }
 
     record_test_result("Runtime loader tests", failed);
-#endif // TESTING
+#endif // Testing
 }

@@ -99,7 +99,7 @@ static result read_file_text(const char *path, char *out_text, usize out_size) {
 }
 
 void run_vfs_and_packer_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
     log_msg("Running VFS/Packer tests...");
 

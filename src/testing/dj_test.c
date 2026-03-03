@@ -15,7 +15,7 @@ static void initialize_empty_channels(DJ *dj) {
 }
 
 void run_dj_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running DJ tests...");
@@ -128,5 +128,5 @@ void run_dj_tests(void) {
     }
 
     record_test_result("DJ tests", failed);
-#endif // TESTING
+#endif // Testing
 }

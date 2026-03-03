@@ -2343,7 +2343,7 @@ static result validate_conf_files(const char *directory_path, usize *out_conf_co
     return Ok;
 }
 
-#ifdef SPRINGENGINE_DEBUG
+#ifdef Debug
 static boolean debug_collider_toggle_pressed(void) {
     return IsKeyPressed(KEY_ONE) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
 }
@@ -2660,7 +2660,7 @@ static void frame_update(void) {
     if (!runtime_state.active)
         return;
 
-#ifdef SPRINGENGINE_DEBUG
+#ifdef Debug
     if (debug_collider_toggle_pressed()) {
         runtime_state.debug_show_collider_borders = !runtime_state.debug_show_collider_borders;
         log_msg("Debug collider borders: %s", runtime_state.debug_show_collider_borders ? "ON" : "OFF");
@@ -2777,7 +2777,7 @@ static void frame_update(void) {
     }
     draw_point_light_overlays(runtime_state.active_camera, runtime_state.active_camera_actor);
 
-#ifdef SPRINGENGINE_DEBUG
+#ifdef Debug
     if (runtime_state.debug_show_collider_borders)
         debug_draw_collider_borders();
 #endif

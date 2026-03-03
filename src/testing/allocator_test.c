@@ -5,7 +5,7 @@
 #include <string.h>
 
 void run_allocator_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running allocator tests...");
@@ -84,5 +84,5 @@ void run_allocator_tests(void) {
     }
 
     record_test_result("Allocator tests", failed);
-#endif // TESTING
+#endif // Testing
 }

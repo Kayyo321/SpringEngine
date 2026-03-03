@@ -56,7 +56,7 @@ static result create_temp_test_dir(char *path_template, usize path_template_size
 }
 
 void run_ui_runtime_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running UI runtime tests...");
@@ -308,5 +308,5 @@ cleanup:
     (void)rmdir(temp_dir);
 
     record_test_result("UI runtime tests", failed);
-#endif // TESTING
+#endif // Testing
 }

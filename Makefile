@@ -20,7 +20,7 @@ LSAN_SUPPRESSIONS_FILE ?= .lsan-suppressions.txt
 BUILD_OBJDIR := $(OBJDIR)
 
 ifneq (,$(filter debug,$(MAKECMDGOALS)))
-CPPFLAGS += -DSPRINGENGINE_DEBUG
+CPPFLAGS += -DDebug
 CFLAGS += -O0 -g -fsanitize=address -fno-omit-frame-pointer
 LDFLAGS += -fsanitize=address
 TARGET := $(DEBUG_TARGET)
@@ -193,7 +193,7 @@ fclean: clean
 
 re: fclean all
 
-test: CPPFLAGS += -DTESTING
+test: CPPFLAGS += -DTesting
 test: clean-test all
 	./$(TARGET)
 

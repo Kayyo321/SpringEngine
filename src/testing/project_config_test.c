@@ -41,7 +41,7 @@ static result create_temp_test_dir(char *path_template, usize path_template_size
 }
 
 void run_project_config_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running project config tests...");
@@ -144,5 +144,5 @@ void run_project_config_tests(void) {
     }
 
     record_test_result("Project config tests", failed);
-#endif // TESTING
+#endif // Testing
 }

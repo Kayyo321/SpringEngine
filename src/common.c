@@ -380,12 +380,12 @@ usize get_warn_count(void){
     return warn_cnt;
 }
 
-#ifdef TESTING
+#ifdef Testing
 void restore_diagnostic_counts(usize warn_count, usize error_count) {
     warn_cnt = warn_count;
     error_cnt = error_count;
 }
-#endif // TESTING
+#endif // Testing
 
 static void ensure_heap_list_integrity(void) {
     if (!heap_list_head) {

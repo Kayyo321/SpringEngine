@@ -28,7 +28,7 @@ static result test_initialize_component(Actor *actor, ActorComponent *component,
 }
 
 void run_actor_tests(void) {
-#ifdef TESTING
+#ifdef Testing
     usize failed = 0;
 
     log_msg("Running actor tests...");
@@ -106,5 +106,5 @@ void run_actor_tests(void) {
     actor_registry_dispose(&registry);
 
     record_test_result("Actor tests", failed);
-#endif // TESTING
+#endif // Testing
 }

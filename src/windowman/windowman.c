@@ -14,7 +14,7 @@ const WindowConfig DefaultWindowConfig = DefaultWindowConfigLiteral;
 
 static WindowConfig current_config = DefaultWindowConfigLiteral;
 
-#ifdef TESTING
+#ifdef Testing
 static void default_init_window(int width, int height, const char *title) {
     InitWindow(width, height, title);
 }
@@ -80,10 +80,10 @@ void windowman_reset_test_hooks(void) {
     hooks = default_hooks;
     hooks_initialized = True;
 }
-#endif // TESTING
+#endif // Testing
 
 result open_window(WindowConfig config) {
-#ifdef TESTING
+#ifdef Testing
     ensure_hooks();
 
     SetTraceLogLevel(LOG_NONE);
@@ -98,7 +98,7 @@ result open_window(WindowConfig config) {
     SetWindowState(config.resizable ? FLAG_WINDOW_RESIZABLE : 0);
 
     if (!IsWindowReady()) {
-#endif // TESTING
+#endif // Testing
         log_err("Failed to initialize the window.");
         return Err;
     }
@@ -109,7 +109,7 @@ result open_window(WindowConfig config) {
 }
 
 boolean update_window(UpdateCallback callback) {
-#ifdef TESTING
+#ifdef Testing
     ensure_hooks();
 
     if (!hooks.window_should_close()) {
@@ -135,7 +135,7 @@ boolean update_window(UpdateCallback callback) {
 
         return False;
     } 
-#endif // TESTING
+#endif // Testing
 
     return True;
 }
@@ -145,10 +145,10 @@ void set_window_clear_color(Color color) {
 }
 
 void close_window(void) {
-#ifdef TESTING
+#ifdef Testing
     ensure_hooks();
     hooks.close_window();
 #else
     CloseWindow();
-#endif // TESTING
+#endif // Testing
 }

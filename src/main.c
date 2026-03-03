@@ -4,9 +4,9 @@
 
 #include "common.h"
 #include "program.h"
-#ifdef TESTING
+#ifdef Testing
 #include "testing/testing.h"
-#endif // TESTING
+#endif // Testing
 
 static double elapsed_seconds(const struct timespec start_time, const struct timespec end_time) {
     time_t seconds = end_time.tv_sec - start_time.tv_sec;
@@ -31,11 +31,11 @@ static void spring_engine(void) {
         struct timespec end_time;
         clock_gettime(CLOCK_MONOTONIC, &start_time);
 
-#ifdef TESTING
+#ifdef Testing
         run_all_tests();
 #else
         run_program();
-#endif // TESTING
+#endif // Testing
 
         clock_gettime(CLOCK_MONOTONIC, &end_time);
         const double elapsed = elapsed_seconds(start_time, end_time);
@@ -49,11 +49,11 @@ static void spring_engine(void) {
 
 int main(int argc, char **argv) {
     program = (Program) {
-#ifdef SPRINGENGINE_DEBUG
+#ifdef Debug
         .title = "SpringEngine-" Version " (Debug-Non-Release!!!)",
 #else
         .title = "SpringEngine-" Version,
-#endif // SPRINGENGINE_DEBUG
+#endif // Debug
         .argc = argc,
         .argv = argv,
     };

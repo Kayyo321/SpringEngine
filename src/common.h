@@ -44,9 +44,9 @@ void log_err(const char *fmt, ...);
 usize get_error_count(void);
 usize get_warn_count(void);
 
-#ifdef TESTING
+#ifdef Testing
 void restore_diagnostic_counts(usize warn_count, usize error_count);
-#endif // TESTING
+#endif // Testing
 
 Heap allocate(usize count, usize bytes);
 Heap reallocate(Heap heap, usize new_size);
