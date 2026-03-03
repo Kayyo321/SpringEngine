@@ -62,6 +62,26 @@ typedef struct {
 
 extern RuntimeState runtime_state;
 
+#define RUNTIME_GUARD_ACTIVE_ERR() do { \
+    if (!runtime_state.active) \
+        return Err; \
+} while (False)
+
+#define RUNTIME_GUARD_ACTIVE_NULL() do { \
+    if (!runtime_state.active) \
+        return Null; \
+} while (False)
+
+#define RUNTIME_GUARD_UI_ERR() do { \
+    if (!runtime_state.active || !runtime_state.ui_runtime) \
+        return Err; \
+} while (False)
+
+#define RUNTIME_GUARD_UI_NULL() do { \
+    if (!runtime_state.active || !runtime_state.ui_runtime) \
+        return Null; \
+} while (False)
+
 Actor *find_actor_by_id(const char *actor_id);
 result enqueue_prefab_instantiation(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size);
 
