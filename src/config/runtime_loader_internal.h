@@ -40,6 +40,9 @@ typedef struct {
 #ifdef Debug
     boolean debug_show_collider_borders;
     usize debug_selected_collider_index;
+    boolean debug_show_light_gizmos;
+    usize debug_selected_light_index;
+    usize debug_light_edit_mode;
 #endif
     boolean has_pending_scene_load;
     usize autoload_actor_count;

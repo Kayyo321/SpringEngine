@@ -2348,6 +2348,18 @@ static boolean debug_collider_toggle_pressed(void) {
     return IsKeyPressed(KEY_ONE) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
 }
 
+enum {
+    DebugLightEditPosition = 0,
+    DebugLightEditRange,
+    DebugLightEditIntensity,
+    DebugLightEditColor,
+    DebugLightEditModeCount,
+};
+
+static boolean debug_light_toggle_pressed(void) {
+    return IsKeyPressed(KEY_TWO) && (IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT));
+}
+
 static boolean debug_is_shift_down(void) {
     return IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
 }
@@ -2357,6 +2369,34 @@ static float debug_collider_edit_step(void) {
         return 8.0f;
 
     return 1.0f;
+}
+
+static void debug_adjust_color_channel(unsigned char *channel, int delta) {
+    if (!channel || delta == 0)
+        return;
+
+    int next_value = (int)*channel + delta;
+    if (next_value < 0)
+        next_value = 0;
+    if (next_value > 255)
+        next_value = 255;
+
+    *channel = (unsigned char)next_value;
+}
+
+static const char *debug_light_mode_name(usize mode) {
+    switch (mode) {
+    case DebugLightEditPosition:
+        return "Position";
+    case DebugLightEditRange:
+        return "Range";
+    case DebugLightEditIntensity:
+        return "Intensity";
+    case DebugLightEditColor:
+        return "Color";
+    default:
+        return "Unknown";
+    }
 }
 
 static boolean debug_get_visible_collider_at(usize target_index, Actor **out_actor, ColliderComponentData **out_collider, usize *out_count) {
@@ -2438,6 +2478,222 @@ static void debug_copy_selected_collider_to_clipboard(usize collider_index, cons
 
     SetClipboardText(clipboard_text);
     log_msg("Copied collider[%zu] for actor '%s' to clipboard", collider_index, actor_id);
+}
+
+static boolean debug_get_visible_light_at(usize target_index, Actor **out_actor, PointLightComponentData **out_light, usize *out_count) {
+    if (out_actor)
+        *out_actor = Null;
+    if (out_light)
+        *out_light = Null;
+
+    usize visible_index = 0;
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->enabled)
+            continue;
+
+        PointLightComponentData *point_light = ActorFindBuiltinComponentDataAs(actor, "PointLight", PointLightComponentData);
+        if (!point_light)
+            continue;
+
+        if (visible_index == target_index) {
+            if (out_actor)
+                *out_actor = actor;
+            if (out_light)
+                *out_light = point_light;
+        }
+
+        ++visible_index;
+    }
+
+    if (out_count)
+        *out_count = visible_index;
+
+    return (out_actor && out_light && *out_actor && *out_light) ? True : False;
+}
+
+static void debug_log_selected_light(usize light_index, const Actor *actor, const PointLightComponentData *light) {
+    if (!actor || !light)
+        return;
+
+    const char *actor_id = actor->id ? actor->id : "<unknown>";
+    log_msg(
+        "Debug point_light[%zu] actor=%s position=(%.1f, %.1f, %.1f) color=(%u, %u, %u, %u) intensity=%.2f range=%.2f enabled=%s",
+        light_index,
+        actor_id,
+        light->position.x,
+        light->position.y,
+        light->position.z,
+        (unsigned)light->color.r,
+        (unsigned)light->color.g,
+        (unsigned)light->color.b,
+        (unsigned)light->color.a,
+        light->intensity,
+        light->range,
+        light->enabled ? "true" : "false"
+    );
+}
+
+static void debug_copy_selected_light_to_clipboard(usize light_index, const Actor *actor, const PointLightComponentData *light) {
+    if (!actor || !light)
+        return;
+
+    const char *actor_id = actor->id ? actor->id : "<unknown>";
+    char clipboard_text[768] = {0};
+    const int written = snprintf(
+        clipboard_text,
+        sizeof(clipboard_text),
+        "# PointLight debug export for actor '%s' (index %zu)\n"
+        "[Actors.Components.PointLight]\n"
+        "position = [%.2f, %.2f, %.2f]\n"
+        "color = [%u, %u, %u, %u]\n"
+        "intensity = %.3f\n"
+        "range = %.3f\n"
+        "enabled = %s\n",
+        actor_id,
+        light_index,
+        light->position.x,
+        light->position.y,
+        light->position.z,
+        (unsigned)light->color.r,
+        (unsigned)light->color.g,
+        (unsigned)light->color.b,
+        (unsigned)light->color.a,
+        light->intensity,
+        light->range,
+        light->enabled ? "true" : "false"
+    );
+
+    if (written < 0 || written >= (int)sizeof(clipboard_text)) {
+        log_err("Failed to export point light values to clipboard: output too long");
+        return;
+    }
+
+    SetClipboardText(clipboard_text);
+    log_msg("Copied point_light[%zu] for actor '%s' to clipboard", light_index, actor_id);
+}
+
+static void debug_update_light_editor(void) {
+    if (!runtime_state.debug_show_light_gizmos)
+        return;
+
+    usize light_count = 0;
+    (void)debug_get_visible_light_at(0, Null, Null, &light_count);
+    if (light_count == 0)
+        return;
+
+    if (runtime_state.debug_selected_light_index >= light_count)
+        runtime_state.debug_selected_light_index = 0;
+
+    if (IsKeyPressed(KEY_K))
+        runtime_state.debug_selected_light_index = (runtime_state.debug_selected_light_index + 1) % light_count;
+
+    if (IsKeyPressed(KEY_J))
+        runtime_state.debug_selected_light_index = (runtime_state.debug_selected_light_index + light_count - 1) % light_count;
+
+    if (runtime_state.debug_light_edit_mode >= DebugLightEditModeCount)
+        runtime_state.debug_light_edit_mode = DebugLightEditPosition;
+
+    if (IsKeyPressed(KEY_TAB))
+        runtime_state.debug_light_edit_mode = (runtime_state.debug_light_edit_mode + 1) % DebugLightEditModeCount;
+
+    Actor *selected_actor = Null;
+    PointLightComponentData *selected_light = Null;
+    if (!debug_get_visible_light_at(runtime_state.debug_selected_light_index, &selected_actor, &selected_light, Null))
+        return;
+
+    const float position_step = debug_collider_edit_step();
+    const float range_step = debug_collider_edit_step();
+    const float intensity_step = (debug_collider_edit_step() > 1.0f) ? 1.0f : 0.1f;
+    const int color_step = (debug_collider_edit_step() > 1.0f) ? 16 : 4;
+    boolean changed = False;
+
+    if (runtime_state.debug_light_edit_mode == DebugLightEditPosition) {
+        if (IsKeyPressed(KEY_LEFT)) {
+            selected_light->position.x -= position_step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_RIGHT)) {
+            selected_light->position.x += position_step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_UP)) {
+            selected_light->position.y -= position_step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_DOWN)) {
+            selected_light->position.y += position_step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_Z)) {
+            selected_light->position.z -= position_step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_X)) {
+            selected_light->position.z += position_step;
+            changed = True;
+        }
+    } else if (runtime_state.debug_light_edit_mode == DebugLightEditRange) {
+        if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_LEFT_BRACKET)) {
+            selected_light->range -= range_step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_RIGHT_BRACKET)) {
+            selected_light->range += range_step;
+            changed = True;
+        }
+
+        if (selected_light->range < 1.0f)
+            selected_light->range = 1.0f;
+    } else if (runtime_state.debug_light_edit_mode == DebugLightEditIntensity) {
+        if (IsKeyPressed(KEY_LEFT) || IsKeyPressed(KEY_DOWN) || IsKeyPressed(KEY_MINUS)) {
+            selected_light->intensity -= intensity_step;
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_RIGHT) || IsKeyPressed(KEY_UP) || IsKeyPressed(KEY_EQUAL)) {
+            selected_light->intensity += intensity_step;
+            changed = True;
+        }
+
+        if (selected_light->intensity < 0.0f)
+            selected_light->intensity = 0.0f;
+    } else if (runtime_state.debug_light_edit_mode == DebugLightEditColor) {
+        if (IsKeyPressed(KEY_LEFT)) {
+            debug_adjust_color_channel(&selected_light->color.r, -color_step);
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_RIGHT)) {
+            debug_adjust_color_channel(&selected_light->color.r, color_step);
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_DOWN)) {
+            debug_adjust_color_channel(&selected_light->color.g, -color_step);
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_UP)) {
+            debug_adjust_color_channel(&selected_light->color.g, color_step);
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_N)) {
+            debug_adjust_color_channel(&selected_light->color.b, -color_step);
+            changed = True;
+        }
+        if (IsKeyPressed(KEY_B)) {
+            debug_adjust_color_channel(&selected_light->color.b, color_step);
+            changed = True;
+        }
+    }
+
+    if (IsKeyPressed(KEY_E)) {
+        selected_light->enabled = !selected_light->enabled;
+        changed = True;
+    }
+
+    if (changed || IsKeyPressed(KEY_J) || IsKeyPressed(KEY_K) || IsKeyPressed(KEY_TAB))
+        debug_log_selected_light(runtime_state.debug_selected_light_index, selected_actor, selected_light);
+
+    if (IsKeyPressed(KEY_C))
+        debug_copy_selected_light_to_clipboard(runtime_state.debug_selected_light_index, selected_actor, selected_light);
 }
 
 static void debug_update_collider_editor(void) {
@@ -2597,6 +2853,79 @@ static void debug_draw_collider_borders(void) {
         DrawText(hud_line, 10, footer_y, 12, WHITE);
     }
 }
+
+static void debug_draw_light_gizmos(void) {
+    if (!runtime_state.debug_show_light_gizmos)
+        return;
+
+    usize visible_index = 0;
+    usize light_count = 0;
+    (void)debug_get_visible_light_at(0, Null, Null, &light_count);
+
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!actor->enabled)
+            continue;
+
+        PointLightComponentData *point_light = ActorFindBuiltinComponentDataAs(actor, "PointLight", PointLightComponentData);
+        if (!point_light)
+            continue;
+
+        const float world_x = actor->transform.position.x + point_light->position.x;
+        const float world_y = actor->transform.position.y + point_light->position.y;
+
+        float draw_x = world_x;
+        float draw_y = world_y;
+        float draw_radius = point_light->range;
+        if (draw_radius <= 0.0f)
+            draw_radius = 1.0f;
+
+        if (runtime_state.active_camera && runtime_state.active_camera_actor) {
+            float zoom = 1.0f;
+            if (runtime_state.active_camera->camera.fovy > 0.001f)
+                zoom = 60.0f / runtime_state.active_camera->camera.fovy;
+
+            const float camera_x = runtime_state.active_camera_actor->transform.position.x;
+            const float camera_y = runtime_state.active_camera_actor->transform.position.y;
+            draw_x = (world_x - camera_x) * zoom + ((float)GetScreenWidth() * 0.5f);
+            draw_y = (world_y - camera_y) * zoom + ((float)GetScreenHeight() * 0.5f);
+            draw_radius *= zoom;
+        }
+
+        if (draw_radius < 2.0f)
+            draw_radius = 2.0f;
+
+        const boolean selected = (visible_index == runtime_state.debug_selected_light_index);
+        const Color ring_color = selected ? YELLOW : (point_light->enabled ? SKYBLUE : GRAY);
+        DrawCircleLines((int)draw_x, (int)draw_y, draw_radius, ring_color);
+        DrawCircleLines((int)draw_x, (int)draw_y, selected ? 5.0f : 3.0f, ring_color);
+
+        if (actor->id && actor->id[0] != '\0')
+            DrawText(actor->id, (int)draw_x + 8, (int)draw_y - 16, 10, ring_color);
+
+        ++visible_index;
+    }
+
+    if (light_count > 0) {
+        char hud_line[512] = {0};
+        (void)snprintf(
+            hud_line,
+            sizeof(hud_line),
+            "Light Debug: J/K select (%zu/%zu) | Tab mode=%s | Arrows edit | Z/X: Z-pos | B/N: Blue | E: enabled | C: copy TOML | Ctrl: larger step",
+            runtime_state.debug_selected_light_index + 1,
+            light_count,
+            debug_light_mode_name(runtime_state.debug_light_edit_mode)
+        );
+
+        const int footer_height = 18;
+        int footer_y = GetScreenHeight() - footer_height;
+        if (footer_y < 0)
+            footer_y = 0;
+
+        DrawRectangle(0, footer_y, GetScreenWidth(), footer_height, Fade(BLACK, 0.55f));
+        DrawText(hud_line, 10, footer_y, 12, WHITE);
+    }
+}
 #endif
 
 static void draw_point_light_overlays(CameraComponentData *active_camera, Actor *active_camera_actor) {
@@ -2663,11 +2992,26 @@ static void frame_update(void) {
 #ifdef Debug
     if (debug_collider_toggle_pressed()) {
         runtime_state.debug_show_collider_borders = !runtime_state.debug_show_collider_borders;
+        if (runtime_state.debug_show_collider_borders)
+            runtime_state.debug_show_light_gizmos = False;
         log_msg("Debug collider borders: %s", runtime_state.debug_show_collider_borders ? "ON" : "OFF");
+    }
+
+    if (debug_light_toggle_pressed()) {
+        runtime_state.debug_show_light_gizmos = !runtime_state.debug_show_light_gizmos;
+        if (runtime_state.debug_show_light_gizmos) {
+            runtime_state.debug_show_collider_borders = False;
+            if (runtime_state.debug_light_edit_mode >= DebugLightEditModeCount)
+                runtime_state.debug_light_edit_mode = DebugLightEditPosition;
+        }
+        log_msg("Debug light gizmos: %s", runtime_state.debug_show_light_gizmos ? "ON" : "OFF");
     }
 
     if (runtime_state.debug_show_collider_borders)
         debug_update_collider_editor();
+
+    if (runtime_state.debug_show_light_gizmos)
+        debug_update_light_editor();
 #endif
 
     process_pending_scene_load();
@@ -2780,6 +3124,9 @@ static void frame_update(void) {
 #ifdef Debug
     if (runtime_state.debug_show_collider_borders)
         debug_draw_collider_borders();
+
+    if (runtime_state.debug_show_light_gizmos)
+        debug_draw_light_gizmos();
 #endif
 
     if (runtime_state.ui_runtime)
