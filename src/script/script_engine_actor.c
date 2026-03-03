@@ -19,19 +19,7 @@ static const char *resolve_component_name_alias(const char *component_name) {
 }
 
 static ActorComponent *find_builtin_component(Actor *actor, const char *component_name) {
-    if (!actor || !component_name || component_name[0] == '\0')
-        return Null;
-
-    for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
-        ActorComponent *component = &actor->components[component_index];
-        if (component->descriptor.kind != ComponentBuiltin || !component->descriptor.name)
-            continue;
-
-        if (strcmp(component->descriptor.name, component_name) == 0)
-            return component;
-    }
-
-    return Null;
+    return actor_find_builtin_component(actor, component_name);
 }
 
 static int animated_sprite_find_bool_param_index(const AnimatedSpriteState *state, const char *name) {

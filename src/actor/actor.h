@@ -94,6 +94,12 @@ result actor_initialize_components(Actor *actor);
 void actor_transform_reset(Actor *actor);
 void actor_capture_previous_transform(Actor *actor);
 result actor_set_parent(Actor *actor, const char *parent_id);
+ActorComponent *actor_find_component(Actor *actor, ComponentKind kind, const char *component_name);
+void *actor_find_component_data(Actor *actor, ComponentKind kind, const char *component_name);
+ActorComponent *actor_find_builtin_component(Actor *actor, const char *component_name);
+
+#define actor_find_component_data_as(actor, kind, component_name, Type) ((Type *)actor_find_component_data((actor), (kind), (component_name)))
+#define actor_find_builtin_component_data_as(actor, component_name, Type) actor_find_component_data_as((actor), ComponentBuiltin, (component_name), Type)
 
 void actor_registry_init(ActorRegistry *registry);
 void actor_registry_dispose(ActorRegistry *registry);

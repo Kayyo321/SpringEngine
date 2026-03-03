@@ -149,6 +149,31 @@ result actor_initialize_components(Actor *actor) {
     return Ok;
 }
 
+ActorComponent *actor_find_component(Actor *actor, ComponentKind kind, const char *component_name) {
+    if (!actor || !component_name || component_name[0] == '\0')
+        return Null;
+
+    for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+        ActorComponent *component = &actor->components[component_index];
+        if (component->descriptor.kind != kind || !component->descriptor.name)
+            continue;
+
+        if (strcmp(component->descriptor.name, component_name) == 0)
+            return component;
+    }
+
+    return Null;
+}
+
+void *actor_find_component_data(Actor *actor, ComponentKind kind, const char *component_name) {
+    ActorComponent *component = actor_find_component(actor, kind, component_name);
+    return component ? component->data : Null;
+}
+
+ActorComponent *actor_find_builtin_component(Actor *actor, const char *component_name) {
+    return actor_find_component(actor, ComponentBuiltin, component_name);
+}
+
 static result ensure_registry_actor_capacity(ActorRegistry *registry, usize required_capacity) {
     if (!registry)
         return Err;

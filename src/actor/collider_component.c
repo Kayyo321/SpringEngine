@@ -5,16 +5,7 @@
 #include <string.h>
 
 ColliderComponentData *actor_find_collider_component(Actor *actor) {
-    if (!actor)
-        return Null;
-
-    for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
-        ActorComponent *component = &actor->components[component_index];
-        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Collider") == 0)
-            return (ColliderComponentData *)component->data;
-    }
-
-    return Null;
+    return actor_find_builtin_component_data_as(actor, "Collider", ColliderComponentData);
 }
 
 static boolean resolve_animated_sprite_frame_size(const AnimatedSpriteState *state, float *out_width, float *out_height) {

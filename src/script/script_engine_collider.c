@@ -11,7 +11,7 @@ static result lua_collider_get_current(lua_State *lua_state, Actor **out_actor, 
     if (!actor)
         return Err;
 
-    ColliderComponentData *collider = actor_find_collider_component(actor);
+    ColliderComponentData *collider = actor_find_builtin_component_data_as(actor, "Collider", ColliderComponentData);
     if (!collider)
         return Err;
 
@@ -160,7 +160,7 @@ static int lua_collider_overlaps_actor(lua_State *lua_state) {
         return 1;
     }
 
-    ColliderComponentData *target_collider = actor_find_collider_component(target_actor);
+    ColliderComponentData *target_collider = actor_find_builtin_component_data_as(target_actor, "Collider", ColliderComponentData);
     if (!target_collider) {
         lua_pushboolean(lua_state, 0);
         return 1;
@@ -193,7 +193,7 @@ static int lua_collider_overlaps_all(lua_State *lua_state) {
         if (!candidate || candidate == current_actor || !candidate->enabled)
             continue;
 
-        ColliderComponentData *candidate_collider = actor_find_collider_component(candidate);
+        ColliderComponentData *candidate_collider = actor_find_builtin_component_data_as(candidate, "Collider", ColliderComponentData);
         if (!candidate_collider || !candidate_collider->enabled)
             continue;
 

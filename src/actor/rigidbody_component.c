@@ -3,16 +3,7 @@
 #include <string.h>
 
 RigidbodyComponentData *actor_find_rigidbody_component(Actor *actor) {
-    if (!actor)
-        return Null;
-
-    for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
-        ActorComponent *component = &actor->components[component_index];
-        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "Rigidbody") == 0)
-            return (RigidbodyComponentData *)component->data;
-    }
-
-    return Null;
+    return actor_find_builtin_component_data_as(actor, "Rigidbody", RigidbodyComponentData);
 }
 
 const char *rigidbody_body_type_to_string(RigidbodyBodyType body_type) {
