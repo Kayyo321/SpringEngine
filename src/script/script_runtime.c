@@ -171,6 +171,8 @@ static result register_engine_libraries(ScriptRuntime *runtime) {
         return Err;
     if (register_preload_module(runtime->lua_state, "Engine.UI", luaopen_engine_ui) != Ok)
         return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.Disk", luaopen_engine_disk) != Ok)
+        return Err;
     if (register_preload_module(runtime->lua_state, "Engine", luaopen_engine) != Ok)
         return Err;
 
@@ -359,14 +361,6 @@ static ColliderComponentData *find_actor_collider(Actor *actor) {
         return Null;
 
     return (ColliderComponentData *)component->data;
-}
-
-static RigidbodyComponentData *find_actor_rigidbody(Actor *actor) {
-    ActorComponent *component = find_builtin_component(actor, "Rigidbody");
-    if (!component)
-        return Null;
-
-    return (RigidbodyComponentData *)component->data;
 }
 
 static int lua_component_collider_set_offset(lua_State *lua_state) {
@@ -795,6 +789,24 @@ static int lua_component_script_call(lua_State *lua_state) {
     return 1;
 }
 
+static result lua_script_self_push_actor_component(lua_State *lua_state, const char *actor_id, const char *component_name) {
+    if (!lua_state || !actor_id || !component_name)
+        return Err;
+
+    luaL_requiref(lua_state, "Engine.Actor", luaopen_engine_actor, 1);
+    lua_getfield(lua_state, -1, "get_component");
+    lua_pushstring(lua_state, actor_id);
+    lua_pushstring(lua_state, component_name);
+
+    if (lua_pcall(lua_state, 2, 1, 0) != LUA_OK) {
+        lua_pop(lua_state, 2);
+        return Err;
+    }
+
+    lua_remove(lua_state, -2);
+    return Ok;
+}
+
 static int lua_script_self_get_component(lua_State *lua_state) {
     const char *default_actor_id = lua_tostring(lua_state, lua_upvalueindex(1));
     const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
@@ -912,58 +924,12 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         return 1;
     }
 
-    if (strcmp(resolved_component, "Rigidbody") == 0 || strcmp(resolved_component, "StaticColor") == 0 || strcmp(resolved_component, "PointLight") == 0 || strcmp(resolved_component, "SpotLight") == 0 || strcmp(resolved_component, "DirectionLight") == 0) {
-        if (!find_actor_rigidbody(actor)) {
-            if (strcmp(resolved_component, "Rigidbody") == 0) {
-                lua_pushnil(lua_state);
-                return 1;
-            }
-        }
-
-        if (strcmp(resolved_component, "StaticColor") == 0) {
-            ActorComponent *static_color_component = find_builtin_component(actor, "StaticColor");
-            if (!static_color_component) {
-                lua_pushnil(lua_state);
-                return 1;
-            }
-        }
-
-        if (strcmp(resolved_component, "PointLight") == 0) {
-            ActorComponent *point_light_component = find_builtin_component(actor, "PointLight");
-            if (!point_light_component) {
-                lua_pushnil(lua_state);
-                return 1;
-            }
-        }
-
-        if (strcmp(resolved_component, "SpotLight") == 0) {
-            ActorComponent *spot_light_component = find_builtin_component(actor, "SpotLight");
-            if (!spot_light_component) {
-                lua_pushnil(lua_state);
-                return 1;
-            }
-        }
-
-        if (strcmp(resolved_component, "DirectionLight") == 0) {
-            ActorComponent *direction_light_component = find_builtin_component(actor, "DirectionLight");
-            if (!direction_light_component) {
-                lua_pushnil(lua_state);
-                return 1;
-            }
-        }
-
-        luaL_requiref(lua_state, "Engine.Actor", luaopen_engine_actor, 1);
-        lua_getfield(lua_state, -1, "get_component");
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushstring(lua_state, resolved_component);
-
-        if (lua_pcall(lua_state, 2, 1, 0) != LUA_OK) {
-            lua_pop(lua_state, 2);
+    if (find_builtin_component(actor, resolved_component)) {
+        if (lua_script_self_push_actor_component(lua_state, target_actor_id ? target_actor_id : "", resolved_component) != Ok) {
             lua_pushnil(lua_state);
             return 1;
         }
 
-        lua_remove(lua_state, -2);
         return 1;
     }
 

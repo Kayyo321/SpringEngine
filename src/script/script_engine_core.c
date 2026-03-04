@@ -65,5 +65,8 @@ int luaopen_engine(lua_State *lua_state) {
     luaL_requiref(lua_state, "Engine.UI", luaopen_engine_ui, 0);
     lua_setfield(lua_state, -2, "UI");
 
+    luaL_requiref(lua_state, "Engine.Disk", luaopen_engine_disk, 0);
+    lua_setfield(lua_state, -2, "Disk");
+
     return 1;
 }

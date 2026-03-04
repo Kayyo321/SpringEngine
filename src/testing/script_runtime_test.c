@@ -172,6 +172,32 @@ void run_script_runtime_tests(void) {
                     }
                 }
                 lua_pop(lua_state, 1);
+
+                lua_getfield(lua_state, -1, "Disk");
+                if (!lua_istable(lua_state, -1)) {
+                    log_err("Engine.Disk should be exposed as a table");
+                    ++failed;
+                } else {
+                    const char *expected_disk_methods[] = {
+                        "resolve",
+                        "exists",
+                        "read_text",
+                        "write_text",
+                        "append_text",
+                        "save",
+                        "ensure_directory",
+                    };
+
+                    for (usize method_index = 0; method_index < (sizeof(expected_disk_methods) / sizeof(expected_disk_methods[0])); ++method_index) {
+                        lua_getfield(lua_state, -1, expected_disk_methods[method_index]);
+                        if (!lua_isfunction(lua_state, -1)) {
+                            log_err("Engine.Disk.%s should be exposed as a function", expected_disk_methods[method_index]);
+                            ++failed;
+                        }
+                        lua_pop(lua_state, 1);
+                    }
+                }
+                lua_pop(lua_state, 1);
             }
             lua_pop(lua_state, 1);
 

@@ -54,6 +54,11 @@ TOMLC17_DIR := $(LIBDIR)/tomlc17
 TOMLC17_INCLUDE_DIR := $(TOMLC17_DIR)/include
 TOMLC17_STATIC_LIB := $(TOMLC17_DIR)/lib/libtomlc17.a
 
+ifeq ($(RELEASE),1)
+LUA_STATIC_LIB := $(LUA_DIR)/src/liblua.a
+TOMLC17_STATIC_LIB := $(TOMLC17_DIR)/src/libtomlc17.a
+endif
+
 ALL_SRC := $(shell find $(SRCDIR) -type f -name '*.c')
 ROOT_SRC := $(wildcard tarheader.c)
 TEST_SRC := $(shell find $(SRCDIR)/testing -type f -name '*.c' 2>/dev/null)
@@ -241,8 +246,6 @@ prepare-lua:
 		echo "Building Lua static library for $(TARGET_OS) with $(CC)..."; \
 		$(MAKE) -C $(LUA_DIR)/src clean CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)"; \
 		$(MAKE) -C $(LUA_DIR)/src $(LUA_MAKE_TARGET) CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)" MYCFLAGS="$(TARGET_ARCH_CFLAGS)"; \
-		mkdir -p $(LUA_DIR)/lib; \
-		cp -f $(LUA_DIR)/src/liblua.a $(LUA_STATIC_LIB); \
 	else \
 		if [ ! -f "$(LUA_STATIC_LIB)" ]; then \
 			echo "Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make $(LUA_MAKE_TARGET) && mkdir -p lib && cp -f src/liblua.a lib/liblua.a"; \
@@ -270,8 +273,6 @@ prepare-tomlc17:
 		echo "Building tomlc17 static library for $(TARGET_OS) with $(CC)..."; \
 		$(MAKE) -C $(TOMLC17_DIR)/src clean CC="$(CC)" AR="$(AR)"; \
 		$(MAKE) -C $(TOMLC17_DIR)/src libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"; \
-		mkdir -p $(TOMLC17_DIR)/lib; \
-		cp -f $(TOMLC17_DIR)/src/libtomlc17.a $(TOMLC17_STATIC_LIB); \
 	elif [ ! -f "$(TOMLC17_STATIC_LIB)" ]; then \
 		$(MAKE) -C $(TOMLC17_DIR)/src clean CC="$(CC)" AR="$(AR)"; \
 		$(MAKE) -C $(TOMLC17_DIR)/src libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"; \

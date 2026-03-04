@@ -58,6 +58,7 @@ Current module surface includes:
 - `Engine.Scene`
 - `Engine.DJ`
 - `Engine.UI`
+- `Engine.Disk`
 
 ## Current Project Priorities
 

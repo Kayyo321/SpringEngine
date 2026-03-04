@@ -77,6 +77,7 @@ SpringEngine preloads these modules:
 - `Engine.Scene`
 - `Engine.DJ`
 - `Engine.UI`
+- `Engine.Disk`
 
 ## Input API (from `Engine.Input`)
 
@@ -99,6 +100,16 @@ Configured by `input.conf` and runtime schema selection.
 - `bring_to_front(document_id)`
 - `send_to_back(document_id)`
 - `current_documents()`
+
+## Disk API (from `Engine.Disk`)
+
+- `resolve(path)`
+- `exists(path)`
+- `read_text(path)`
+- `write_text(path, text)`
+- `append_text(path, text)`
+- `save(path, text)`
+- `ensure_directory(path)`
 
 ## Common Pattern
 
