@@ -54,6 +54,8 @@ void deallocate(Heap heap);
 
 result scan_and_deallocate(void); // returns Err if any leaked bytes are reclaimed, otherwise Ok
 
+void set_default_raylib_log_level(void);
+
 #if !defined(CommonAllowStdlibAllocators)
 #define malloc(...) SpringengineUseAllocateInsteadOfMalloc
 #define realloc(...) SpringengineUseReallocateInsteadOfRealloc

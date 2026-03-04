@@ -12,6 +12,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "raylib.h"
+
 #ifdef _WIN32
 #include <direct.h>
 #endif
@@ -539,4 +541,12 @@ result scan_and_deallocate(void) {
     }
 
     return (reclaimed_bytes > 0) ? Err : Ok;
+}
+
+void set_default_raylib_log_level(void) {
+#if defined(Debug) || defined(Testing)
+    SetTraceLogLevel(LOG_ALL);
+#else
+    SetTraceLogLevel(LOG_WARNING);
+#endif
 }

@@ -86,12 +86,12 @@ result open_window(WindowConfig config) {
 #ifdef Testing
     ensure_hooks();
 
-    SetTraceLogLevel(LOG_NONE);
+    set_default_raylib_log_level();
 
     hooks.init_window((int)config.width, (int)config.height, config.title);
     if (!hooks.is_window_ready()) {
 #else
-    SetTraceLogLevel(LOG_NONE);
+    set_default_raylib_log_level();
     InitWindow(config.width, config.height, config.title);
     if (!IsWindowReady()) {
 #endif // Testing
