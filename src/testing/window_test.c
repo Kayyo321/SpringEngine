@@ -169,8 +169,8 @@ void run_window_tests(void) {
 
     restore_diagnostic_counts(warn_before_expected_window_err, err_before_expected_window_err);
 
-    if (state.set_state_called != 1 || state.last_window_state != 0) {
-        log_err("open_window should pass 0 flags when window is non-resizable");
+    if (state.set_state_called != 0) {
+        log_err("open_window should not set window state when initialization fails");
         ++failed;
     }
 

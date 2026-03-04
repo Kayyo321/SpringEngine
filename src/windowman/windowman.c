@@ -89,19 +89,21 @@ result open_window(WindowConfig config) {
     SetTraceLogLevel(LOG_NONE);
 
     hooks.init_window((int)config.width, (int)config.height, config.title);
-    hooks.set_window_state(config.resizable ? FLAG_WINDOW_RESIZABLE : 0);
-
     if (!hooks.is_window_ready()) {
 #else
     SetTraceLogLevel(LOG_NONE);
     InitWindow(config.width, config.height, config.title);
-    SetWindowState(config.resizable ? FLAG_WINDOW_RESIZABLE : 0);
-
     if (!IsWindowReady()) {
 #endif // Testing
-        log_err("Failed to initialize the window.");
+        log_err("Failed to initialize the window (title='%s', size=%lux%lu).", config.title ? config.title : "<null>", config.width, config.height);
         return Err;
     }
+
+#ifdef Testing
+    hooks.set_window_state(config.resizable ? FLAG_WINDOW_RESIZABLE : 0);
+#else
+    SetWindowState(config.resizable ? FLAG_WINDOW_RESIZABLE : 0);
+#endif // Testing
 
     current_config = config;
 

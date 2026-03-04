@@ -54,3 +54,10 @@ Description: TOML C library in c17.
 Version: v1.0
 Libs: -L${prefix}/lib -ltomlc17
 Cflags: -I${prefix}/include
+prefix=.
+Name: libtomlc17
+URL: https://github.com/cktan/tomlc17/
+Description: TOML C library in c17.
+Version: v1.0
+Libs: -L${prefix}/lib -ltomlc17
+Cflags: -I${prefix}/include
