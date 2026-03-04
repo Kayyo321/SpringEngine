@@ -49,11 +49,13 @@ static void spring_engine(void) {
 
 int main(int argc, char **argv) {
     program = (Program) {
+        .title = "SpringEngine-" Version
 #ifdef Debug
-        .title = "SpringEngine-" Version " (Debug-Non-Release!!!)",
-#else
-        .title = "SpringEngine-" Version,
-#endif // Debug
+         " (Debug-Non-Release!!!)"
+#elif Testing
+         " (Testing-Non-Release!!!)"
+#endif
+    ,
         .argc = argc,
         .argv = argv,
     };
