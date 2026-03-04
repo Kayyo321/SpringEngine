@@ -111,7 +111,11 @@ springengine executable. There's a helper for this: `rebuild_libs.sh`
 - `bin/release/windows-x86_64/springengine-win-64.exe`
 - `bin/release/windows-i686/springengine-win-32.exe`
 - `bin/release/macos-x86_64/springengine-macos-64`
-- `bin/release/macos-i386/springengine-macos-32`
+- `bin/release/macos-arm64/springengine-macos-arm64`
+
+You can customize release-only compiler optimizations via `RELEASE_FLAGS`:
+
+- Example: `make release-all RELEASE_FLAGS="-O2 -DNDEBUG -flto"`
 
 `release-all` continues through every target and reports failures at the end (instead of stopping at the first failed target).
 

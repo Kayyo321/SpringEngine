@@ -11,6 +11,7 @@ HOST_UNAME_S := $(shell uname -s)
 TARGET_OS ?= $(HOST_UNAME_S)
 STATIC_LINK ?= 0
 RELEASE ?= 0
+RELEASE_FLAGS ?= -O3 -DNDEBUG -ffunction-sections -fdata-sections
 TARGET_ARCH_CFLAGS ?=
 TARGET_STATIC_LDFLAGS ?=
 
@@ -28,7 +29,7 @@ LSAN_SUPPRESSIONS_FILE ?= .lsan-suppressions.txt
 BUILD_OBJDIR := $(OBJDIR)
 
 ifeq ($(RELEASE),1)
-CFLAGS += -O3 -DNDEBUG
+CFLAGS += $(RELEASE_FLAGS)
 endif
 
 CFLAGS += $(TARGET_ARCH_CFLAGS)
@@ -149,7 +150,7 @@ ifeq ($(TARGET_OS),Windows)
 LUA_MAKE_TARGET := generic
 endif
 
-RELEASE_TARGETS ?= linux-x86_64 linux-i686 windows-x86_64 windows-i686 macos-x86_64 macos-i386
+RELEASE_TARGETS ?= linux-x86_64 linux-i686 windows-x86_64 windows-i686 macos-x86_64 macos-arm64
 CC_LINUX_X86_64 ?= x86_64-linux-gnu-gcc
 AR_LINUX_X86_64 ?= x86_64-linux-gnu-ar
 RANLIB_LINUX_X86_64 ?= x86_64-linux-gnu-ranlib
@@ -165,9 +166,9 @@ RANLIB_WINDOWS_I686 ?= i686-w64-mingw32-ranlib
 CC_MACOS_X86_64 ?= clang
 AR_MACOS_X86_64 ?= ar
 RANLIB_MACOS_X86_64 ?= ranlib
-CC_MACOS_I386 ?= clang
-AR_MACOS_I386 ?= ar
-RANLIB_MACOS_I386 ?= ranlib
+CC_MACOS_ARM64 ?= clang
+AR_MACOS_ARM64 ?= ar
+RANLIB_MACOS_ARM64 ?= ranlib
 
 RAYLIB_PLATFORM_OS ?=
 ifeq ($(TARGET_OS),Linux)
@@ -193,7 +194,8 @@ RAYLIB_BACKEND_ARGS += SDL_LIBRARIES="$(RAYLIB_SDL_LIBRARIES)"
 endif
 endif
 
-.PHONY: all debug clean clean-test fclean re test check-allocators prepare-lua prepare-tomlc17 prepare-raylib check-raylib check-toolchain release release-all release-linux-x86_64 release-linux-i686 release-windows-x86_64 release-windows-i686 release-macos-x86_64 release-macos-i386
+.PHONY: all debug clean clean-test fclean re test check-allocators prepare-lua prepare-tomlc17 prepare-raylib check-raylib check-toolchain release release-all release-linux-x86_64 release-linux-i686 release-windows-x86_64 release-windows-i686 release-macos-x86_64 release-macos-arm64
+.NOTPARALLEL: all
 
 -include $(DEP)
 
@@ -237,7 +239,8 @@ $(TARGET): $(OBJ) $(LUA_STATIC_LIB) $(TOMLC17_STATIC_LIB) | $(BINDIR)
 prepare-lua:
 	@if [ "$(RELEASE)" = "1" ]; then \
 		echo "Building Lua static library for $(TARGET_OS) with $(CC)..."; \
-		$(MAKE) -C $(LUA_DIR)/src clean $(LUA_MAKE_TARGET) CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)" MYCFLAGS="$(TARGET_ARCH_CFLAGS)"; \
+		$(MAKE) -C $(LUA_DIR)/src clean CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)"; \
+		$(MAKE) -C $(LUA_DIR)/src $(LUA_MAKE_TARGET) CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)" MYCFLAGS="$(TARGET_ARCH_CFLAGS)"; \
 		mkdir -p $(LUA_DIR)/lib; \
 		cp -f $(LUA_DIR)/src/liblua.a $(LUA_STATIC_LIB); \
 	else \
@@ -265,11 +268,13 @@ endif
 prepare-tomlc17:
 	@if [ "$(RELEASE)" = "1" ]; then \
 		echo "Building tomlc17 static library for $(TARGET_OS) with $(CC)..."; \
-		$(MAKE) -C $(TOMLC17_DIR)/src clean libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"; \
+		$(MAKE) -C $(TOMLC17_DIR)/src clean CC="$(CC)" AR="$(AR)"; \
+		$(MAKE) -C $(TOMLC17_DIR)/src libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"; \
 		mkdir -p $(TOMLC17_DIR)/lib; \
 		cp -f $(TOMLC17_DIR)/src/libtomlc17.a $(TOMLC17_STATIC_LIB); \
 	elif [ ! -f "$(TOMLC17_STATIC_LIB)" ]; then \
-		$(MAKE) -C $(TOMLC17_DIR)/src clean libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"; \
+		$(MAKE) -C $(TOMLC17_DIR)/src clean CC="$(CC)" AR="$(AR)"; \
+		$(MAKE) -C $(TOMLC17_DIR)/src libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"; \
 		mkdir -p $(TOMLC17_DIR)/lib; \
 		cp -f $(TOMLC17_DIR)/src/libtomlc17.a $(TOMLC17_STATIC_LIB); \
 	fi
@@ -283,7 +288,8 @@ prepare-raylib:
 	fi
 
 $(TOMLC17_STATIC_LIB):
-	@$(MAKE) -C $(TOMLC17_DIR)/src clean libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"
+	@$(MAKE) -C $(TOMLC17_DIR)/src clean CC="$(CC)" AR="$(AR)"
+	@$(MAKE) -C $(TOMLC17_DIR)/src libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"
 	@mkdir -p $(TOMLC17_DIR)/lib
 	@cp -f $(TOMLC17_DIR)/src/libtomlc17.a $(TOMLC17_STATIC_LIB)
 
@@ -346,12 +352,12 @@ release-macos-x86_64:
 		TARGET_ARCH_CFLAGS="-arch x86_64" TARGET_STATIC_LDFLAGS="" \
 		TARGET="$(RELEASE_DIR)/macos-x86_64/springengine-macos-64" BUILD_OBJDIR="$(OBJDIR)/release/macos-x86_64"
 
-release-macos-i386:
+release-macos-arm64:
 	@$(MAKE) check-toolchain all \
 		RELEASE=1 STATIC_LINK=1 TARGET_OS=Darwin \
-		CC="$(CC_MACOS_I386)" AR="$(AR_MACOS_I386)" RANLIB="$(RANLIB_MACOS_I386)" \
-		TARGET_ARCH_CFLAGS="-arch i386" TARGET_STATIC_LDFLAGS="" \
-		TARGET="$(RELEASE_DIR)/macos-i386/springengine-macos-32" BUILD_OBJDIR="$(OBJDIR)/release/macos-i386"
+		CC="$(CC_MACOS_ARM64)" AR="$(AR_MACOS_ARM64)" RANLIB="$(RANLIB_MACOS_ARM64)" \
+		TARGET_ARCH_CFLAGS="-arch arm64" TARGET_STATIC_LDFLAGS="" \
+		TARGET="$(RELEASE_DIR)/macos-arm64/springengine-macos-arm64" BUILD_OBJDIR="$(OBJDIR)/release/macos-arm64"
 
 $(BUILD_OBJDIR)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
