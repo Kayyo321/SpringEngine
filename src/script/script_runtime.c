@@ -16,6 +16,7 @@ typedef struct {
 
 static const char *RUNTIME_REGISTRY_KEY = "__springengine_runtime";
 static const char *CURRENT_ACTOR_REGISTRY_KEY = "__springengine_current_actor";
+static const char *COMPONENT_CACHE_REGISTRY_KEY = "__springengine_component_cache";
 
 result runtime_join_path(const char *base, const char *path, char *out_path, usize out_size) {
     return vfs_resolve_path(base, path, out_path, out_size);
@@ -789,6 +790,120 @@ static int lua_component_script_call(lua_State *lua_state) {
     return 1;
 }
 
+static void lua_component_set_actor_method(lua_State *lua_state, const char *actor_id, const char *field_name, lua_CFunction method) {
+    lua_pushstring(lua_state, actor_id ? actor_id : "");
+    lua_pushcclosure(lua_state, method, 1);
+    lua_setfield(lua_state, -2, field_name);
+}
+
+static result lua_runtime_push_component_cache(lua_State *lua_state) {
+    if (!lua_state)
+        return Err;
+
+    lua_getfield(lua_state, LUA_REGISTRYINDEX, COMPONENT_CACHE_REGISTRY_KEY);
+    if (!lua_istable(lua_state, -1)) {
+        lua_pop(lua_state, 1);
+        lua_newtable(lua_state);
+        lua_pushvalue(lua_state, -1);
+        lua_setfield(lua_state, LUA_REGISTRYINDEX, COMPONENT_CACHE_REGISTRY_KEY);
+    }
+
+    return Ok;
+}
+
+static boolean lua_runtime_fetch_cached_component(lua_State *lua_state, const char *actor_id, const char *component_name) {
+    if (!lua_state || !actor_id || !component_name)
+        return False;
+
+    if (lua_runtime_push_component_cache(lua_state) != Ok)
+        return False;
+
+    lua_getfield(lua_state, -1, actor_id);
+    if (!lua_istable(lua_state, -1)) {
+        lua_pop(lua_state, 2);
+        return False;
+    }
+
+    lua_getfield(lua_state, -1, component_name);
+    if (lua_isnil(lua_state, -1)) {
+        lua_pop(lua_state, 3);
+        return False;
+    }
+
+    lua_remove(lua_state, -2);
+    lua_remove(lua_state, -2);
+    return True;
+}
+
+static result lua_runtime_store_cached_component(lua_State *lua_state, const char *actor_id, const char *component_name) {
+    if (!lua_state || !actor_id || !component_name)
+        return Err;
+
+    if (lua_runtime_push_component_cache(lua_state) != Ok)
+        return Err;
+
+    lua_getfield(lua_state, -1, actor_id);
+    if (!lua_istable(lua_state, -1)) {
+        lua_pop(lua_state, 1);
+        lua_newtable(lua_state);
+        lua_pushvalue(lua_state, -1);
+        lua_setfield(lua_state, -3, actor_id);
+    }
+
+    lua_pushvalue(lua_state, -3);
+    lua_setfield(lua_state, -2, component_name);
+    lua_pop(lua_state, 2);
+    return Ok;
+}
+
+static result lua_script_self_build_animated_sprite_proxy(lua_State *lua_state, Actor *actor, const char *actor_id) {
+    if (!lua_state) {
+        lua_pushnil(lua_state);
+        return Err;
+    }
+
+    if (!find_actor_animated_sprite(actor)) {
+        lua_pushnil(lua_state);
+        return Ok;
+    }
+
+    lua_newtable(lua_state);
+    lua_component_set_actor_method(lua_state, actor_id, "set", lua_component_animconf_set);
+    lua_component_set_actor_method(lua_state, actor_id, "get", lua_component_animconf_get);
+    lua_component_set_actor_method(lua_state, actor_id, "set_number", lua_component_animconf_set_number);
+    lua_component_set_actor_method(lua_state, actor_id, "get_number", lua_component_animconf_get_number);
+    lua_component_set_actor_method(lua_state, actor_id, "set_flip_x", lua_component_animconf_set_flip_x);
+    lua_component_set_actor_method(lua_state, actor_id, "get_flip_x", lua_component_animconf_get_flip_x);
+    return Ok;
+}
+
+static result lua_script_self_build_collider_proxy(lua_State *lua_state, Actor *actor, const char *actor_id) {
+    if (!lua_state) {
+        lua_pushnil(lua_state);
+        return Err;
+    }
+
+    if (!find_actor_collider(actor)) {
+        lua_pushnil(lua_state);
+        return Ok;
+    }
+
+    lua_newtable(lua_state);
+    lua_component_set_actor_method(lua_state, actor_id, "set_offset", lua_component_collider_set_offset);
+    lua_component_set_actor_method(lua_state, actor_id, "get_offset", lua_component_collider_get_offset);
+    lua_component_set_actor_method(lua_state, actor_id, "set_size", lua_component_collider_set_size);
+    lua_component_set_actor_method(lua_state, actor_id, "get_size", lua_component_collider_get_size);
+    lua_component_set_actor_method(lua_state, actor_id, "set_enabled", lua_component_collider_set_enabled);
+    lua_component_set_actor_method(lua_state, actor_id, "get_enabled", lua_component_collider_get_enabled);
+    lua_component_set_actor_method(lua_state, actor_id, "set_is_trigger", lua_component_collider_set_is_trigger);
+    lua_component_set_actor_method(lua_state, actor_id, "get_is_trigger", lua_component_collider_get_is_trigger);
+    lua_component_set_actor_method(lua_state, actor_id, "get_bounds", lua_component_collider_get_bounds);
+    lua_component_set_actor_method(lua_state, actor_id, "overlaps_actor", lua_component_collider_overlaps_actor);
+    lua_component_set_actor_method(lua_state, actor_id, "overlaps_all", lua_component_collider_overlaps_all);
+    lua_component_set_actor_method(lua_state, actor_id, "overlaps_point", lua_component_collider_overlaps_point);
+    return Ok;
+}
+
 static result lua_script_self_push_actor_component(lua_State *lua_state, const char *actor_id, const char *component_name) {
     if (!lua_state || !actor_id || !component_name)
         return Err;
@@ -800,11 +915,101 @@ static result lua_script_self_push_actor_component(lua_State *lua_state, const c
 
     if (lua_pcall(lua_state, 2, 1, 0) != LUA_OK) {
         lua_pop(lua_state, 2);
+        lua_pushnil(lua_state);
         return Err;
     }
 
     lua_remove(lua_state, -2);
     return Ok;
+}
+
+static result lua_script_self_build_script_proxy(lua_State *lua_state, Actor *actor, const char *actor_id, const char *module_path) {
+    if (!lua_state) {
+        lua_pushnil(lua_state);
+        return Err;
+    }
+
+    ScriptComponentState *script_state = find_actor_script_component_state(actor, module_path);
+    if (!script_state || script_state->table_ref == LUA_NOREF) {
+        lua_pushnil(lua_state);
+        return Ok;
+    }
+
+    lua_newtable(lua_state);
+    lua_pushstring(lua_state, actor_id ? actor_id : "");
+    lua_pushstring(lua_state, module_path ? module_path : "");
+    lua_pushcclosure(lua_state, lua_component_script_call, 2);
+    lua_setfield(lua_state, -2, "call");
+    return Ok;
+}
+
+static result lua_script_self_build_component_proxy(lua_State *lua_state, Actor *actor, const char *actor_id, const char *component_name) {
+    if (!lua_state || !actor || !actor_id || !component_name)
+        return Err;
+
+    if (strcmp(component_name, "AnimatedSprite") == 0)
+        return lua_script_self_build_animated_sprite_proxy(lua_state, actor, actor_id);
+
+    if (strcmp(component_name, "Collider") == 0)
+        return lua_script_self_build_collider_proxy(lua_state, actor, actor_id);
+
+    if (find_builtin_component(actor, component_name))
+        return lua_script_self_push_actor_component(lua_state, actor_id, component_name);
+
+    return lua_script_self_build_script_proxy(lua_state, actor, actor_id, component_name);
+}
+
+static void lua_script_self_cache_component_proxy(lua_State *lua_state, Actor *actor, const char *actor_id, const char *component_name) {
+    if (!lua_state || !actor || !actor_id || !component_name)
+        return;
+
+    const char *resolved_component = resolve_component_name_alias(component_name);
+    if (!resolved_component)
+        return;
+
+    if (lua_runtime_fetch_cached_component(lua_state, actor_id, resolved_component)) {
+        lua_pop(lua_state, 1);
+        return;
+    }
+
+    if (lua_script_self_build_component_proxy(lua_state, actor, actor_id, resolved_component) != Ok) {
+        if (!lua_isnil(lua_state, -1))
+            lua_pop(lua_state, 1);
+        return;
+    }
+
+    if (lua_isnil(lua_state, -1)) {
+        lua_pop(lua_state, 1);
+        return;
+    }
+
+    if (lua_runtime_store_cached_component(lua_state, actor_id, resolved_component) != Ok) {
+        lua_pop(lua_state, 1);
+        return;
+    }
+
+    lua_pop(lua_state, 1);
+}
+
+static void lua_script_self_prime_actor_component_cache(lua_State *lua_state, Actor *actor, const char *actor_id) {
+    if (!lua_state || !actor || !actor_id)
+        return;
+
+    for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+        ActorComponent *component = &actor->components[component_index];
+        if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name) {
+            lua_script_self_cache_component_proxy(lua_state, actor, actor_id, component->descriptor.name);
+            continue;
+        }
+
+        if (component->descriptor.kind == ComponentScript && component->data) {
+            ScriptComponentState *state = (ScriptComponentState *)component->data;
+            if (state->module_path[0] != '\0')
+                lua_script_self_cache_component_proxy(lua_state, actor, actor_id, state->module_path);
+            if (state->module_alias[0] != '\0')
+                lua_script_self_cache_component_proxy(lua_state, actor, actor_id, state->module_alias);
+        }
+    }
 }
 
 static int lua_script_self_get_component(lua_State *lua_state) {
@@ -830,122 +1035,19 @@ static int lua_script_self_get_component(lua_State *lua_state) {
         return 1;
     }
 
-    if (strcmp(resolved_component, "AnimatedSprite") == 0) {
-        if (!find_actor_animated_sprite(actor)) {
-            lua_pushnil(lua_state);
-            return 1;
-        }
-
-        lua_newtable(lua_state);
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_animconf_set, 1);
-        lua_setfield(lua_state, -2, "set");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_animconf_get, 1);
-        lua_setfield(lua_state, -2, "get");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_animconf_set_number, 1);
-        lua_setfield(lua_state, -2, "set_number");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_animconf_get_number, 1);
-        lua_setfield(lua_state, -2, "get_number");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_animconf_set_flip_x, 1);
-        lua_setfield(lua_state, -2, "set_flip_x");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_animconf_get_flip_x, 1);
-        lua_setfield(lua_state, -2, "get_flip_x");
-
+    const char *cache_actor_id = target_actor_id ? target_actor_id : "";
+    if (lua_runtime_fetch_cached_component(lua_state, cache_actor_id, resolved_component))
         return 1;
-    }
 
-    if (strcmp(resolved_component, "Collider") == 0) {
-        if (!find_actor_collider(actor)) {
-            lua_pushnil(lua_state);
-            return 1;
-        }
-
-        lua_newtable(lua_state);
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_set_offset, 1);
-        lua_setfield(lua_state, -2, "set_offset");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_get_offset, 1);
-        lua_setfield(lua_state, -2, "get_offset");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_set_size, 1);
-        lua_setfield(lua_state, -2, "set_size");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_get_size, 1);
-        lua_setfield(lua_state, -2, "get_size");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_set_enabled, 1);
-        lua_setfield(lua_state, -2, "set_enabled");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_get_enabled, 1);
-        lua_setfield(lua_state, -2, "get_enabled");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_set_is_trigger, 1);
-        lua_setfield(lua_state, -2, "set_is_trigger");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_get_is_trigger, 1);
-        lua_setfield(lua_state, -2, "get_is_trigger");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_get_bounds, 1);
-        lua_setfield(lua_state, -2, "get_bounds");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_overlaps_actor, 1);
-        lua_setfield(lua_state, -2, "overlaps_actor");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_overlaps_all, 1);
-        lua_setfield(lua_state, -2, "overlaps_all");
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushcclosure(lua_state, lua_component_collider_overlaps_point, 1);
-        lua_setfield(lua_state, -2, "overlaps_point");
-
+    if (lua_script_self_build_component_proxy(lua_state, actor, cache_actor_id, resolved_component) != Ok)
         return 1;
-    }
 
-    if (find_builtin_component(actor, resolved_component)) {
-        if (lua_script_self_push_actor_component(lua_state, target_actor_id ? target_actor_id : "", resolved_component) != Ok) {
-            lua_pushnil(lua_state);
-            return 1;
-        }
-
+    if (lua_isnil(lua_state, -1))
         return 1;
-    }
 
-    ScriptComponentState *script_state = find_actor_script_component_state(actor, resolved_component);
-    if (script_state && script_state->table_ref != LUA_NOREF) {
-        lua_newtable(lua_state);
-
-        lua_pushstring(lua_state, target_actor_id ? target_actor_id : "");
-        lua_pushstring(lua_state, resolved_component);
-        lua_pushcclosure(lua_state, lua_component_script_call, 2);
-        lua_setfield(lua_state, -2, "call");
-
+    if (lua_runtime_store_cached_component(lua_state, cache_actor_id, resolved_component) != Ok)
         return 1;
-    }
 
-    lua_pushnil(lua_state);
     return 1;
 }
 
@@ -1172,6 +1274,8 @@ result script_component_initialize(Actor *actor, ActorComponent *component, void
 
     state->table_ref = luaL_ref(lua_state, LUA_REGISTRYINDEX);
     state->initialized = True;
+
+    lua_script_self_prime_actor_component_cache(lua_state, actor, actor->id ? actor->id : "");
 
     if (!state->has_awake && !state->has_start && !state->has_update && !state->has_on_destroy) {
         log_warn("Lua script '%s' has no lifecycle functions (awake/start/update/on_destroy)", state->module_path);
