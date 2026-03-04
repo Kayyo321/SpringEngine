@@ -245,7 +245,7 @@ prepare-lua:
 	@if [ "$(RELEASE)" = "1" ]; then \
 		echo "Building Lua static library for $(TARGET_OS) with $(CC)..."; \
 		$(MAKE) -C $(LUA_DIR)/src clean CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)"; \
-		$(MAKE) -C $(LUA_DIR)/src $(LUA_MAKE_TARGET) CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)" MYCFLAGS="$(TARGET_ARCH_CFLAGS)"; \
+		$(MAKE) -C $(LUA_DIR)/src $(LUA_MAKE_TARGET) CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)" MYCFLAGS="$(TARGET_ARCH_CFLAGS)" MYLDFLAGS="$(TARGET_ARCH_CFLAGS)"; \
 	else \
 		if [ ! -f "$(LUA_STATIC_LIB)" ]; then \
 			echo "Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make $(LUA_MAKE_TARGET) && mkdir -p lib && cp -f src/liblua.a lib/liblua.a"; \
