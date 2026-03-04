@@ -1,13 +1,50 @@
+#define CommonAllowStdlibAllocators
 #include "testing.h"
 
 #include "actor/actor.h"
 #include "config/static_sprite_component.h"
 #include "script/script_runtime_internal.h"
 
+// CommonAllowStdlibAllocators needed to unmask definition of allocators in this library
+#include <stdlib.h>
+
 #include "common.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+static result create_temp_test_dir(char *path_template, usize path_template_size, const char **out_temp_dir) {
+    if (!path_template || !out_temp_dir || path_template_size == 0)
+        return Err;
+
+#if defined(__APPLE__)
+    int temp_fd = mkstemp(path_template);
+    if (temp_fd < 0)
+        return Err;
+
+    if (close(temp_fd) != 0)
+        return Err;
+
+    if (unlink(path_template) != 0)
+        return Err;
+
+    if (mkdir(path_template, 0700) != 0)
+        return Err;
+
+    *out_temp_dir = path_template;
+    return Ok;
+#else
+    char *temp_dir = mkdtemp(path_template);
+    if (!temp_dir)
+        return Err;
+
+    *out_temp_dir = temp_dir;
+    return Ok;
+#endif
+}
 
 static boolean nearly_equal(float lhs, float rhs, float tolerance) {
     return fabsf(lhs - rhs) <= tolerance ? True : False;
@@ -120,10 +157,16 @@ void run_script_runtime_tests(void) {
     }
 
     {
+        char temp_dir_template[] = "/tmp/springengine-script-runtime-XXXXXX";
+        const char *temp_dir = Null;
         lua_State *lua_state = luaL_newstate();
         if (!lua_state) {
             log_err("luaL_newstate should create a Lua state");
             ++failed;
+        } else if (create_temp_test_dir(temp_dir_template, sizeof(temp_dir_template), &temp_dir) != Ok || !temp_dir) {
+            log_err("temp directory creation failed for script runtime tests");
+            ++failed;
+            lua_close(lua_state);
         } else {
             luaL_openlibs(lua_state);
 
@@ -214,6 +257,11 @@ void run_script_runtime_tests(void) {
                 .actor_registry = &registry,
             };
 
+            if (snprintf(runtime.project_root, sizeof(runtime.project_root), "%s", temp_dir) >= (int)sizeof(runtime.project_root)) {
+                log_err("failed to compose runtime project root for Engine.Disk tests");
+                ++failed;
+            }
+
             lua_pushlightuserdata(lua_state, &runtime);
             lua_setfield(lua_state, LUA_REGISTRYINDEX, "__springengine_runtime");
 
@@ -237,6 +285,58 @@ void run_script_runtime_tests(void) {
             if (lua_runtime_current_actor(lua_state) != Null) {
                 log_err("lua_runtime_set_current_actor should clear actor when null is provided");
                 ++failed;
+            }
+
+            {
+                char expected_disk_path[512] = {0};
+                char file_path[512] = {0};
+                char unit_dir[512] = {0};
+                char saves_dir[512] = {0};
+
+                if (snprintf(expected_disk_path, sizeof(expected_disk_path), "%s/saves/unit/state.txt", temp_dir) >= (int)sizeof(expected_disk_path)
+                    || snprintf(file_path, sizeof(file_path), "%s/saves/unit/state.txt", temp_dir) >= (int)sizeof(file_path)
+                    || snprintf(unit_dir, sizeof(unit_dir), "%s/saves/unit", temp_dir) >= (int)sizeof(unit_dir)
+                    || snprintf(saves_dir, sizeof(saves_dir), "%s/saves", temp_dir) >= (int)sizeof(saves_dir)) {
+                    log_err("failed to compose Engine.Disk test paths");
+                    ++failed;
+                } else {
+                    lua_pushstring(lua_state, expected_disk_path);
+                    lua_setglobal(lua_state, "__expected_disk_path");
+
+                    const char *disk_test_script =
+                        "local Disk = require('Engine.Disk')\n"
+                        "if Disk.exists('saves/unit/state.txt') then return false end\n"
+                        "if not Disk.ensure_directory('saves/unit') then return false end\n"
+                        "if not Disk.write_text('saves/unit/state.txt', 'hello') then return false end\n"
+                        "if not Disk.exists('saves/unit/state.txt') then return false end\n"
+                        "if Disk.read_text('saves/unit/state.txt') ~= 'hello' then return false end\n"
+                        "if not Disk.append_text('saves/unit/state.txt', ' world') then return false end\n"
+                        "if Disk.read_text('saves/unit/state.txt') ~= 'hello world' then return false end\n"
+                        "if not Disk.save('saves/unit/state.txt', 'reset') then return false end\n"
+                        "if Disk.read_text('saves/unit/state.txt') ~= 'reset' then return false end\n"
+                        "if Disk.resolve('saves/unit/state.txt') ~= __expected_disk_path then return false end\n"
+                        "if Disk.write_text('bad/../blocked.txt', 'nope') then return false end\n"
+                        "return true\n";
+
+                    if (luaL_dostring(lua_state, disk_test_script) != LUA_OK) {
+                        const char *error_message = lua_tostring(lua_state, -1);
+                        log_err("Engine.Disk Lua test script failed: %s", error_message ? error_message : "<unknown error>");
+                        ++failed;
+                        lua_pop(lua_state, 1);
+                    } else {
+                        const boolean disk_ok = lua_toboolean(lua_state, -1) ? True : False;
+                        lua_pop(lua_state, 1);
+                        if (!disk_ok) {
+                            log_err("Engine.Disk integration behavior should pass write/read/append/save/resolve checks");
+                            ++failed;
+                        }
+                    }
+                }
+
+                (void)unlink(file_path);
+                (void)rmdir(unit_dir);
+                (void)rmdir(saves_dir);
+                (void)rmdir(temp_dir);
             }
 
             lua_close(lua_state);
