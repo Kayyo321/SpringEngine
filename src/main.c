@@ -12,8 +12,8 @@
 #include "testing/testing.h"
 #endif // Testing
 
-#ifdef _WIN32
 static double get_timestamp_seconds(void) {
+#ifdef _WIN32
     static LARGE_INTEGER frequency = {0};
     LARGE_INTEGER counter;
 
@@ -22,14 +22,12 @@ static double get_timestamp_seconds(void) {
 
     QueryPerformanceCounter(&counter);
     return (double)counter.QuadPart / (double)frequency.QuadPart;
-}
 #else
-static double get_timestamp_seconds(void) {
     struct timespec timestamp = {0};
     clock_gettime(CLOCK_MONOTONIC, &timestamp);
     return (double)timestamp.tv_sec + ((double)timestamp.tv_nsec / 1000000000.0);
-}
 #endif
+}
 
 static void spring_engine(void) {
     if (open_logger() != Ok)
