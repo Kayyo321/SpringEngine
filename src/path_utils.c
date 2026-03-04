@@ -5,6 +5,10 @@
 #include <string.h>
 #include <stdio.h>
 
+#ifdef _WIN32
+#include <direct.h>
+#endif
+
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
@@ -48,7 +52,13 @@ result ensure_directory(const char *path) {
         return Err;
     }
 
-    if (mkdir(path, 0755) != 0) {
+    int mkdir_result = 0;
+#ifdef _WIN32
+    mkdir_result = _mkdir(path);
+#else
+    mkdir_result = mkdir(path, 0755);
+#endif
+    if (mkdir_result != 0) {
         log_err("Failed to create directory '%s': %s", path, strerror(errno));
         return Err;
     }

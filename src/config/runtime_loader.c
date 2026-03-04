@@ -676,7 +676,7 @@ static result generate_prefab_runtime_actor_id(const char *prefab_ref_id, char *
 
     char candidate[RuntimeMaxRuntimeActorIdLength] = {0};
     for (usize copy_index = 1; copy_index < 1000000; ++copy_index) {
-        if (snprintf(candidate, sizeof(candidate), "%s(copy%zu)", prefab_ref_id, copy_index) >= (int)sizeof(candidate))
+        if (snprintf(candidate, sizeof(candidate), "%s(copy%lu)", prefab_ref_id, (unsigned long)copy_index) >= (int)sizeof(candidate))
             return Err;
 
         if (runtime_actor_id_exists(candidate))

@@ -1,6 +1,7 @@
 HFILES := tomlc17.h
 CFILES := tomlc17.c
 OBJ := $(CFILES:.c=.o)
+AR ?= ar
 
 CFLAGS := -std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD 
 LIB_VERSION := 1.0
@@ -19,7 +20,7 @@ all: $(EXEC) $(LIB) $(LIB_SHARED)
 *.o: $(HFILES)
 
 libtomlc17.a: tomlc17.o
-	ar -rcs $@ $^
+	$(AR) -rcs $@ $^
 
 $(LIB_SHARED): tomlc17.o
 	$(CC) -shared -o $@ $^

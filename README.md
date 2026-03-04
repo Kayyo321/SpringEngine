@@ -99,9 +99,25 @@ springengine executable. There's a helper for this: `rebuild_libs.sh`
 
 - Build: `make`
 - Debug build (ASan): `make debug`
+- Release matrix (static): `make release` or `make release all`
 - Tests: `make test`
 - Clean objects: `make clean`
 - Clean objects + binaries: `make fclean`
+
+`make release` emits binaries under `bin/release/<target>/`:
+
+- `bin/release/linux-x86_64/springengine-linux-64`
+- `bin/release/linux-i686/springengine-linux-32`
+- `bin/release/windows-x86_64/springengine-win-64.exe`
+- `bin/release/windows-i686/springengine-win-32.exe`
+- `bin/release/macos-x86_64/springengine-macos-64`
+- `bin/release/macos-i386/springengine-macos-32`
+
+`release-all` continues through every target and reports failures at the end (instead of stopping at the first failed target).
+
+If Linux cross-builds fail on macOS with missing `X11/Xlib.h`, use raylib's SDL backend for Linux targets (requires Linux-target SDL2 headers/libs):
+
+- `make release-all RAYLIB_PLATFORM=PLATFORM_DESKTOP_SDL RAYLIB_SDL_INCLUDE_PATH=/path/to/linux-sdl2/include RAYLIB_SDL_LIBRARIES="-L/path/to/linux-sdl2/lib -lSDL2"`
 
 ### Runtime Commands
 

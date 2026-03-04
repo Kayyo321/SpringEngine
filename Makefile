@@ -1,23 +1,42 @@
 CC ?= cc
+AR ?= ar
+RANLIB ?= ranlib
 CFLAGS ?= -Wall -Wextra -Wpedantic -Werror -std=c11
 CPPFLAGS ?=
 LDFLAGS ?=
 
 CPPFLAGS += -D_POSIX_C_SOURCE=200809L
 
-UNAME_S := $(shell uname -s)
+HOST_UNAME_S := $(shell uname -s)
+TARGET_OS ?= $(HOST_UNAME_S)
+STATIC_LINK ?= 0
+RELEASE ?= 0
+TARGET_ARCH_CFLAGS ?=
+TARGET_STATIC_LDFLAGS ?=
 
 SRCDIR := src
 LIBDIR := lib
 OBJDIR := obj
 BINDIR := bin
 TARGET ?= $(BINDIR)/springengine
+RELEASE_DIR := $(BINDIR)/release
 DEBUG_TARGET := $(BINDIR)/springengine-debug
 TEST_TARGET := $(BINDIR)/springengine-test
 RUN_PROJECT ?= ./example-project/
 LSAN_SUPPRESSIONS_FILE ?= .lsan-suppressions.txt
 
 BUILD_OBJDIR := $(OBJDIR)
+
+ifeq ($(RELEASE),1)
+CFLAGS += -O3 -DNDEBUG
+endif
+
+CFLAGS += $(TARGET_ARCH_CFLAGS)
+LDFLAGS += $(TARGET_ARCH_CFLAGS)
+
+ifeq ($(STATIC_LINK),1)
+LDFLAGS += $(TARGET_STATIC_LDFLAGS)
+endif
 
 ifneq (,$(filter debug,$(MAKECMDGOALS)))
 CPPFLAGS += -DDebug
@@ -57,10 +76,12 @@ LIB_INCLUDE_DIRS := \
 CPPFLAGS += $(addprefix -I,$(SRC_INCLUDE_DIRS))
 CPPFLAGS += $(addprefix -I,$(LIB_INCLUDE_DIRS))
 
-ifeq ($(UNAME_S),Linux)
+ifeq ($(TARGET_OS),Linux)
+ifneq ($(STATIC_LINK),1)
 RAYLIB_CFLAGS := $(shell pkg-config --cflags raylib 2>/dev/null)
 RAYLIB_LIBS := $(shell pkg-config --libs raylib 2>/dev/null)
 SDL2_LIBS := $(shell pkg-config --libs sdl2 2>/dev/null)
+endif
 CPPFLAGS += $(RAYLIB_CFLAGS)
 endif
 
@@ -68,6 +89,9 @@ ifeq ($(wildcard $(TOMLC17_DIR)/include/tomlc17.h),)
 $(error Missing tomlc17 headers at $(TOMLC17_DIR)/include/tomlc17.h. Ensure lib/tomlc17 is present.)
 endif
 
+ifeq ($(STATIC_LINK),1)
+LIB_FILES := $(shell find $(LIBDIR) -type f -name '*.a' 2>/dev/null | sort)
+else
 LIB_FILES := $(shell \
 	find $(LIBDIR) -type f \( -name '*.a' -o -name '*.dylib' -o -name '*.dylib.*' -o -name '*.so' -o -name '*.so.*' \) 2>/dev/null | sort | \
 	awk '{ \
@@ -89,24 +113,87 @@ LIB_FILES := $(shell \
 	} END { \
 		for (name in best_path) print best_path[name]; \
 	}' | sort)
+endif
 LIB_FILES := $(filter-out $(LUA_STATIC_LIB),$(LIB_FILES))
 LIB_FILES := $(filter-out $(TOMLC17_STATIC_LIB),$(LIB_FILES))
+LIB_FILES := $(filter-out $(LUA_DIR)/src/liblua.a,$(LIB_FILES))
+LIB_FILES := $(filter-out $(TOMLC17_DIR)/src/libtomlc17.a,$(LIB_FILES))
 LDLIBS += $(LIB_FILES)
 LDLIBS += $(LUA_STATIC_LIB)
 LDLIBS += $(TOMLC17_STATIC_LIB)
 
-ifeq ($(UNAME_S),Linux)
+ifeq ($(TARGET_OS),Linux)
 LDLIBS += $(RAYLIB_LIBS)
 LDLIBS += $(SDL2_LIBS)
-LDLIBS += -lm
+LDLIBS += -lm -lpthread -ldl -lrt -lX11
 endif
 
-ifeq ($(UNAME_S),Darwin)
+ifeq ($(TARGET_OS),Darwin)
 LDFLAGS += -framework Cocoa -framework IOKit -framework CoreVideo -framework CoreAudio -framework AudioToolbox -framework CoreFoundation -framework AppKit
 LDLIBS += -lm
 endif
 
-.PHONY: all debug clean clean-test fclean re test check-allocators prepare-lua check-raylib
+ifeq ($(TARGET_OS),Windows)
+CPPFLAGS += -Dlstat=stat
+LDLIBS += -lopengl32 -lgdi32 -lwinmm
+endif
+
+LUA_MAKE_TARGET ?= posix
+ifeq ($(TARGET_OS),Linux)
+LUA_MAKE_TARGET := linux
+endif
+ifeq ($(TARGET_OS),Darwin)
+LUA_MAKE_TARGET := macosx
+endif
+ifeq ($(TARGET_OS),Windows)
+LUA_MAKE_TARGET := generic
+endif
+
+RELEASE_TARGETS ?= linux-x86_64 linux-i686 windows-x86_64 windows-i686 macos-x86_64 macos-i386
+CC_LINUX_X86_64 ?= x86_64-linux-gnu-gcc
+AR_LINUX_X86_64 ?= x86_64-linux-gnu-ar
+RANLIB_LINUX_X86_64 ?= x86_64-linux-gnu-ranlib
+CC_LINUX_I686 ?= i686-linux-gnu-gcc
+AR_LINUX_I686 ?= i686-linux-gnu-ar
+RANLIB_LINUX_I686 ?= i686-linux-gnu-ranlib
+CC_WINDOWS_X86_64 ?= x86_64-w64-mingw32-gcc
+AR_WINDOWS_X86_64 ?= x86_64-w64-mingw32-ar
+RANLIB_WINDOWS_X86_64 ?= x86_64-w64-mingw32-ranlib
+CC_WINDOWS_I686 ?= i686-w64-mingw32-gcc
+AR_WINDOWS_I686 ?= i686-w64-mingw32-ar
+RANLIB_WINDOWS_I686 ?= i686-w64-mingw32-ranlib
+CC_MACOS_X86_64 ?= clang
+AR_MACOS_X86_64 ?= ar
+RANLIB_MACOS_X86_64 ?= ranlib
+CC_MACOS_I386 ?= clang
+AR_MACOS_I386 ?= ar
+RANLIB_MACOS_I386 ?= ranlib
+
+RAYLIB_PLATFORM_OS ?=
+ifeq ($(TARGET_OS),Linux)
+RAYLIB_PLATFORM_OS := LINUX
+endif
+ifeq ($(TARGET_OS),Darwin)
+RAYLIB_PLATFORM_OS := OSX
+endif
+ifeq ($(TARGET_OS),Windows)
+RAYLIB_PLATFORM_OS := WINDOWS
+endif
+
+RAYLIB_PLATFORM ?= PLATFORM_DESKTOP
+RAYLIB_SDL_INCLUDE_PATH ?=
+RAYLIB_SDL_LIBRARIES ?=
+RAYLIB_BACKEND_ARGS :=
+ifeq ($(RAYLIB_PLATFORM),PLATFORM_DESKTOP_SDL)
+ifneq ($(strip $(RAYLIB_SDL_INCLUDE_PATH)),)
+RAYLIB_BACKEND_ARGS += SDL_INCLUDE_PATH="$(RAYLIB_SDL_INCLUDE_PATH)"
+endif
+ifneq ($(strip $(RAYLIB_SDL_LIBRARIES)),)
+RAYLIB_BACKEND_ARGS += SDL_LIBRARIES="$(RAYLIB_SDL_LIBRARIES)"
+endif
+endif
+
+.PHONY: all debug clean clean-test fclean re test check-allocators prepare-lua prepare-tomlc17 prepare-raylib check-raylib check-toolchain release release-all release-linux-x86_64 release-linux-i686 release-windows-x86_64 release-windows-i686 release-macos-x86_64 release-macos-i386
 
 -include $(DEP)
 
@@ -125,7 +212,12 @@ ifneq ($(wildcard $(LSAN_SUPPRESSIONS_FILE)),)
 LSAN_OPTIONS_WITH_SUPPRESSIONS := $(LSAN_OPTIONS_WITH_SUPPRESSIONS):suppressions=$(abspath $(LSAN_SUPPRESSIONS_FILE)):print_suppressions=1
 endif
 
-all: check-allocators prepare-lua check-raylib $(TARGET)
+ifneq (,$(filter release,$(MAKECMDGOALS)))
+all:
+	@true
+else
+all: check-allocators prepare-lua prepare-tomlc17 prepare-raylib check-raylib $(TARGET)
+endif
 
 debug: all
 
@@ -139,33 +231,127 @@ run-debug-symbols-sdl-suppressed: debug
 	ASAN_OPTIONS='$(ASAN_OPTIONS_BASE)' LSAN_OPTIONS='$(LSAN_OPTIONS_WITH_SUPPRESSIONS)' ./$(DEBUG_TARGET) --run $(RUN_PROJECT)
 
 $(TARGET): $(OBJ) $(LUA_STATIC_LIB) $(TOMLC17_STATIC_LIB) | $(BINDIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(OBJ) $(LDFLAGS) $(LDLIBS) -o $@
 
 prepare-lua:
-ifeq ($(UNAME_S),Linux)
-	@if [ ! -f "$(LUA_STATIC_LIB)" ] || file "$(LUA_STATIC_LIB)" | grep -q 'Mach-O'; then \
-		echo "Building Linux Lua static library..."; \
-		$(MAKE) -C $(LUA_DIR)/src clean linux; \
+	@if [ "$(RELEASE)" = "1" ]; then \
+		echo "Building Lua static library for $(TARGET_OS) with $(CC)..."; \
+		$(MAKE) -C $(LUA_DIR)/src clean $(LUA_MAKE_TARGET) CC="$(CC)" AR="$(AR) rcu" RANLIB="$(RANLIB)" MYCFLAGS="$(TARGET_ARCH_CFLAGS)"; \
 		mkdir -p $(LUA_DIR)/lib; \
 		cp -f $(LUA_DIR)/src/liblua.a $(LUA_STATIC_LIB); \
+	else \
+		if [ ! -f "$(LUA_STATIC_LIB)" ]; then \
+			echo "Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make $(LUA_MAKE_TARGET) && mkdir -p lib && cp -f src/liblua.a lib/liblua.a"; \
+			exit 1; \
+		fi; \
 	fi
-else
-	@if [ ! -f "$(LUA_STATIC_LIB)" ]; then \
-		echo "Missing Lua static library at $(LUA_STATIC_LIB). Build it first with: cd $(LUA_DIR) && make clean && make macosx && mkdir -p lib && cp -f src/*.a lib/"; \
-		exit 1; \
-	fi
-endif
 
 check-raylib:
-ifeq ($(UNAME_S),Linux)
+ifeq ($(STATIC_LINK),1)
+	@if [ ! -f "$(LIBDIR)/raylib/lib/libraylib.a" ]; then \
+		echo "Missing static raylib at $(LIBDIR)/raylib/lib/libraylib.a. Build it first (example: ./rebuild_libs.sh)."; \
+		exit 1; \
+	fi
+else
+ifeq ($(TARGET_OS),Linux)
 	@if [ -z "$(RAYLIB_LIBS)" ] && ! find $(LIBDIR)/raylib -type f \( -name 'libraylib.a' -o -name 'libraylib.so' -o -name 'libraylib.so.*' \) | grep -q .; then \
 		echo "Missing raylib link flags on Linux. Install raylib development package (pkg-config module 'raylib') or place a raylib library under $(LIBDIR)/raylib."; \
 		exit 1; \
 	fi
 endif
+endif
+
+prepare-tomlc17:
+	@if [ "$(RELEASE)" = "1" ]; then \
+		echo "Building tomlc17 static library for $(TARGET_OS) with $(CC)..."; \
+		$(MAKE) -C $(TOMLC17_DIR)/src clean libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"; \
+		mkdir -p $(TOMLC17_DIR)/lib; \
+		cp -f $(TOMLC17_DIR)/src/libtomlc17.a $(TOMLC17_STATIC_LIB); \
+	elif [ ! -f "$(TOMLC17_STATIC_LIB)" ]; then \
+		$(MAKE) -C $(TOMLC17_DIR)/src clean libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"; \
+		mkdir -p $(TOMLC17_DIR)/lib; \
+		cp -f $(TOMLC17_DIR)/src/libtomlc17.a $(TOMLC17_STATIC_LIB); \
+	fi
+
+prepare-raylib:
+	@if [ "$(RELEASE)" = "1" ]; then \
+		echo "Building raylib static library for $(TARGET_OS) with $(CC)..."; \
+		rm -f $(LIBDIR)/raylib/lib/libraylib.a; \
+		$(MAKE) -C $(LIBDIR)/raylib/src clean; \
+		$(MAKE) -C $(LIBDIR)/raylib/src RAYLIB_LIBTYPE=STATIC RAYLIB_RELEASE_PATH=../lib CC="$(CC)" AR="$(AR)" PLATFORM="$(RAYLIB_PLATFORM)" PLATFORM_OS="$(RAYLIB_PLATFORM_OS)" CUSTOM_CFLAGS="$(TARGET_ARCH_CFLAGS)" $(RAYLIB_BACKEND_ARGS); \
+	fi
 
 $(TOMLC17_STATIC_LIB):
-	@$(MAKE) -C $(TOMLC17_DIR) clean install prefix=./
+	@$(MAKE) -C $(TOMLC17_DIR)/src clean libtomlc17.a CC="$(CC)" AR="$(AR)" CFLAGS="-std=c17 -fpic -Wmissing-declarations -Wall -Wextra -MMD -O3 -DNDEBUG $(TARGET_ARCH_CFLAGS)"
+	@mkdir -p $(TOMLC17_DIR)/lib
+	@cp -f $(TOMLC17_DIR)/src/libtomlc17.a $(TOMLC17_STATIC_LIB)
+
+check-toolchain:
+	@command -v "$(CC)" >/dev/null 2>&1 || { echo "Compiler not found: $(CC)"; exit 1; }
+	@command -v "$(AR)" >/dev/null 2>&1 || { echo "Archiver not found: $(AR)"; exit 1; }
+	@command -v "$(RANLIB)" >/dev/null 2>&1 || { echo "Ranlib not found: $(RANLIB)"; exit 1; }
+
+release: release-all
+
+release-all:
+	@fails=0; \
+	for target in $(addprefix release-,$(RELEASE_TARGETS)); do \
+		echo "[release-all] Building $$target"; \
+		if $(MAKE) $$target; then \
+			echo "[release-all] OK: $$target"; \
+		else \
+			echo "[release-all] FAIL: $$target"; \
+			fails=$$((fails+1)); \
+		fi; \
+	done; \
+	if [ $$fails -ne 0 ]; then \
+		echo "[release-all] Completed with $$fails failing target(s)."; \
+		exit 2; \
+	fi; \
+	echo "[release-all] All targets built successfully."
+
+release-linux-x86_64:
+	@$(MAKE) check-toolchain all \
+		RELEASE=1 STATIC_LINK=1 TARGET_OS=Linux \
+		CC="$(CC_LINUX_X86_64)" AR="$(AR_LINUX_X86_64)" RANLIB="$(RANLIB_LINUX_X86_64)" \
+		TARGET_ARCH_CFLAGS="-m64" TARGET_STATIC_LDFLAGS="-static" \
+		TARGET="$(RELEASE_DIR)/linux-x86_64/springengine-linux-64" BUILD_OBJDIR="$(OBJDIR)/release/linux-x86_64"
+
+release-linux-i686:
+	@$(MAKE) check-toolchain all \
+		RELEASE=1 STATIC_LINK=1 TARGET_OS=Linux \
+		CC="$(CC_LINUX_I686)" AR="$(AR_LINUX_I686)" RANLIB="$(RANLIB_LINUX_I686)" \
+		TARGET_ARCH_CFLAGS="-m32" TARGET_STATIC_LDFLAGS="-static" \
+		TARGET="$(RELEASE_DIR)/linux-i686/springengine-linux-32" BUILD_OBJDIR="$(OBJDIR)/release/linux-i686"
+
+release-windows-x86_64:
+	@$(MAKE) check-toolchain all \
+		RELEASE=1 STATIC_LINK=1 TARGET_OS=Windows \
+		CC="$(CC_WINDOWS_X86_64)" AR="$(AR_WINDOWS_X86_64)" RANLIB="$(RANLIB_WINDOWS_X86_64)" \
+		TARGET_ARCH_CFLAGS="-m64" TARGET_STATIC_LDFLAGS="-static -static-libgcc" \
+		TARGET="$(RELEASE_DIR)/windows-x86_64/springengine-win-64.exe" BUILD_OBJDIR="$(OBJDIR)/release/windows-x86_64"
+
+release-windows-i686:
+	@$(MAKE) check-toolchain all \
+		RELEASE=1 STATIC_LINK=1 TARGET_OS=Windows \
+		CC="$(CC_WINDOWS_I686)" AR="$(AR_WINDOWS_I686)" RANLIB="$(RANLIB_WINDOWS_I686)" \
+		TARGET_ARCH_CFLAGS="-m32" TARGET_STATIC_LDFLAGS="-static -static-libgcc" \
+		TARGET="$(RELEASE_DIR)/windows-i686/springengine-win-32.exe" BUILD_OBJDIR="$(OBJDIR)/release/windows-i686"
+
+release-macos-x86_64:
+	@$(MAKE) check-toolchain all \
+		RELEASE=1 STATIC_LINK=1 TARGET_OS=Darwin \
+		CC="$(CC_MACOS_X86_64)" AR="$(AR_MACOS_X86_64)" RANLIB="$(RANLIB_MACOS_X86_64)" \
+		TARGET_ARCH_CFLAGS="-arch x86_64" TARGET_STATIC_LDFLAGS="" \
+		TARGET="$(RELEASE_DIR)/macos-x86_64/springengine-macos-64" BUILD_OBJDIR="$(OBJDIR)/release/macos-x86_64"
+
+release-macos-i386:
+	@$(MAKE) check-toolchain all \
+		RELEASE=1 STATIC_LINK=1 TARGET_OS=Darwin \
+		CC="$(CC_MACOS_I386)" AR="$(AR_MACOS_I386)" RANLIB="$(RANLIB_MACOS_I386)" \
+		TARGET_ARCH_CFLAGS="-arch i386" TARGET_STATIC_LDFLAGS="" \
+		TARGET="$(RELEASE_DIR)/macos-i386/springengine-macos-32" BUILD_OBJDIR="$(OBJDIR)/release/macos-i386"
 
 $(BUILD_OBJDIR)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
@@ -190,6 +376,7 @@ clean-test:
 
 fclean: clean
 	@rm -f $(BINDIR)/springengine $(DEBUG_TARGET) $(TEST_TARGET)
+	@rm -rf $(RELEASE_DIR)
 
 re: fclean all
 

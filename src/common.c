@@ -12,6 +12,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifdef _WIN32
+#include <direct.h>
+#endif
+
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
@@ -49,6 +53,14 @@ static usize warn_cnt = 0;
 static HeapList *heap_list_head = Null;
 static HeapList *heap_list_last = Null;
 
+static int create_log_directory(const char *path) {
+#ifdef _WIN32
+    return _mkdir(path);
+#else
+    return mkdir(path, 0755);
+#endif
+}
+
 static result ensure_log_directory(void) {
     struct stat path_stat = {0};
     if (stat(LogDirectory, &path_stat) == 0) {
@@ -59,7 +71,7 @@ static result ensure_log_directory(void) {
         return Err;
     }
 
-    if (mkdir(LogDirectory, 0755) != 0) {
+    if (create_log_directory(LogDirectory) != 0) {
         fprintf(stderr, "Failed to create log directory '%s': %s\n", LogDirectory, strerror(errno));
         return Err;
     }
@@ -69,7 +81,11 @@ static result ensure_log_directory(void) {
 
 static void format_timestamp(time_t value, char *buffer, usize buffer_size) {
     struct tm tm_info = {0};
+#ifdef _WIN32
+    if (localtime_s(&tm_info, &value) != 0) {
+#else
     if (!localtime_r(&value, &tm_info)) {
+#endif
         if (snprintf(buffer, buffer_size, "unknown") >= (int)buffer_size)
             buffer[0] = '\0';
         return;
