@@ -21,8 +21,28 @@ static void write_octal_field(char *field, usize field_size, unsigned long long 
 
     memset(field, '0', field_size);
     if (field_size >= 2) {
+        const usize width = field_size - 1;
+        char octal_digits[32] = {0};
+        usize digits_count = 0;
+
         field[field_size - 1] = '\0';
-        (void)snprintf(field, field_size, "%0*llo", (int)(field_size - 1), value);
+
+        if (value == 0) {
+            octal_digits[digits_count++] = '0';
+        } else {
+            while (value > 0 && digits_count < sizeof(octal_digits)) {
+                octal_digits[digits_count++] = (char)('0' + (value & 7ULL));
+                value >>= 3U;
+            }
+        }
+
+        if (digits_count > width) {
+            memset(field, '7', width);
+            return;
+        }
+
+        for (usize index = 0; index < digits_count; ++index)
+            field[width - 1 - index] = octal_digits[index];
     }
 }
 

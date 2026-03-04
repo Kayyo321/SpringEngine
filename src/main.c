@@ -2,23 +2,34 @@
 #include <stdio.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "common.h"
 #include "program.h"
 #ifdef Testing
 #include "testing/testing.h"
 #endif // Testing
 
-static double elapsed_seconds(const struct timespec start_time, const struct timespec end_time) {
-    time_t seconds = end_time.tv_sec - start_time.tv_sec;
-    long nanoseconds = end_time.tv_nsec - start_time.tv_nsec;
+#ifdef _WIN32
+static double get_timestamp_seconds(void) {
+    static LARGE_INTEGER frequency = {0};
+    LARGE_INTEGER counter;
 
-    if (nanoseconds < 0) {
-        --seconds;
-        nanoseconds += 1000000000L;
-    }
+    if (frequency.QuadPart == 0)
+        QueryPerformanceFrequency(&frequency);
 
-    return (double)seconds + ((double)nanoseconds / 1000000000.0);
+    QueryPerformanceCounter(&counter);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
 }
+#else
+static double get_timestamp_seconds(void) {
+    struct timespec timestamp = {0};
+    clock_gettime(CLOCK_MONOTONIC, &timestamp);
+    return (double)timestamp.tv_sec + ((double)timestamp.tv_nsec / 1000000000.0);
+}
+#endif
 
 static void spring_engine(void) {
     if (open_logger() != Ok)
@@ -27,9 +38,7 @@ static void spring_engine(void) {
     log_msg("%s is starting", program.title);
 
     {
-        struct timespec start_time;
-        struct timespec end_time;
-        clock_gettime(CLOCK_MONOTONIC, &start_time);
+        const double start_time = get_timestamp_seconds();
 
 #ifdef Testing
         run_all_tests();
@@ -37,8 +46,8 @@ static void spring_engine(void) {
         run_program();
 #endif // Testing
 
-        clock_gettime(CLOCK_MONOTONIC, &end_time);
-        const double elapsed = elapsed_seconds(start_time, end_time);
+        const double end_time = get_timestamp_seconds();
+        const double elapsed = end_time - start_time;
         log_msg("Program executed in %.3f seconds.", elapsed);
     }
 
