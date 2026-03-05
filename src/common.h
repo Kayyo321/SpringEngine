@@ -1,7 +1,7 @@
 #ifndef CommonH
 #define CommonH
 
-#define Version "0.1.1"
+#define Version "0.1.0"
 
 enum {
     True = 1,
