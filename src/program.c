@@ -10,6 +10,7 @@
 static void log_usage(void) {
     log_msg("SpringEngine Usage:");
     log_msg("  --version | -v");
+    log_msg("  --validate-ver <project_path_or_archive.targame> | -vv <project_path_or_archive.targame>");
     log_msg("  --validate-config <project_path_or_archive.targame> | -vc <project_path_or_archive.targame>");
     log_msg("  --run <project_path_or_archive.targame> | -r <project_path_or_archive.targame>");
     log_msg("  --make-proj <path_to_put_it> <project_name> | -mp <path_to_put_it> <project_name>");
@@ -62,6 +63,19 @@ void run_program(void) {
 
         const char *project_path = program.argv[2];
         if (validate_project_configs(project_path) != Ok)
+            quit(Err);
+
+        return;
+    }
+
+    if (ArgEqu(1, "--validate-ver") || ArgEqu(1, "-vv")) {
+        if (program.argc < 3) {
+            log_err("Missing project path for --validate-ver command");
+            quit(Err);
+        }
+
+        const char *project_path = program.argv[2];
+        if (validate_project_version_requirement(project_path) != Ok)
             quit(Err);
 
         return;

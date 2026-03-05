@@ -307,6 +307,10 @@ springengine = "= 0.1.1"
 
 If the requirement does not pass, runtime exits with an error before opening the game window.
 
+CLI helper:
+
+- `bin/springengine --validate-ver <project_or_archive_path>` validates only `version.conf` compatibility.
+
 ## 12) Shader descriptor files (`shaders/*.shader.conf`)
 
 Shader descriptors are validated at startup and by `--validate-config`.

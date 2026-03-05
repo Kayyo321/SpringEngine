@@ -5025,3 +5025,24 @@ fail:
     vfs_unmount();
     return Err;
 }
+
+result validate_project_version_requirement(const char *project_path) {
+    if (!project_path || project_path[0] == '\0') {
+        log_err("Project path is missing");
+        return Err;
+    }
+
+    if (vfs_mount_project(project_path) != Ok) {
+        log_err("Project path '%s' is not a valid directory or .targame archive", project_path);
+        return Err;
+    }
+
+    if (version_check_project_requirement(project_path, Version) != Ok) {
+        vfs_unmount();
+        return Err;
+    }
+
+    log_msg("Version requirement validation passed for '%s'", project_path);
+    vfs_unmount();
+    return Ok;
+}

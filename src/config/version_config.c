@@ -173,8 +173,10 @@ result version_check_project_requirement(const char *project_root, const char *e
         return Err;
     }
 
-    if (vfs_file_exists(version_config_path) != True)
+    if (vfs_file_exists(version_config_path) != True) {
+        log_warn("Optional version config not found: '%s'", version_config_path);
         return Ok;
+    }
 
     toml_result_t parsed = {0};
     if (vfs_parse_toml_file(version_config_path, &parsed) != Ok) {
