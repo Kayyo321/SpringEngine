@@ -499,7 +499,7 @@ Heap reallocate(Heap heap, usize new_size) {
 #if !defined(Debug) && !defined(Testing)
 static void wipe_memory(void *pointer, usize size) {
     memset(pointer, 0, size); // 0 out all allocations on release builds
-                                  // TODO: consider making this an optional feature for release
+                              // TODO: consider making this an optional feature for release
 }
 #endif
 

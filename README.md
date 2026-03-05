@@ -128,6 +128,7 @@ If Linux cross-builds fail on macOS with missing `X11/Xlib.h`, use raylib's SDL 
 ### Runtime Commands
 
 - Version: `bin/springengine --version`
+- Validate project configs: `bin/springengine --validate-config <project_or_archive_path>`
 - Run project folder/archive: `bin/springengine --run <project_or_archive_path>`
 - Pack folder to archive: `bin/springengine --pack <source_directory> <archive.targame>`
 - Unpack archive: `bin/springengine --unpack <archive.targame> <destination_directory>`

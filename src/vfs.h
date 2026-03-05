@@ -20,6 +20,9 @@ result vfs_parse_toml_file(const char *path, toml_result_t *out_parsed);
 
 result vfs_count_conf_files(usize *out_conf_count);
 
+typedef result (*VfsFileIterator)(const char *path, void *user_data);
+result vfs_for_each_file_with_suffix(const char *base_path, const char *suffix, VfsFileIterator iterator, void *user_data);
+
 result vfs_load_texture(const char *path, Texture2D *out_texture);
 result vfs_load_sound(const char *path, Sound *out_sound);
 result vfs_load_music(const char *path, Music *out_music);

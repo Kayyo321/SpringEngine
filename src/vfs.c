@@ -574,6 +574,110 @@ result vfs_count_conf_files(usize *out_conf_count) {
     return Ok;
 }
 
+static boolean path_has_suffix(const char *path, const char *suffix) {
+    if (!path || !suffix)
+        return False;
+
+    const usize path_length = strlen(path);
+    const usize suffix_length = strlen(suffix);
+    if (suffix_length == 0 || path_length < suffix_length)
+        return False;
+
+    return strcmp(path + (path_length - suffix_length), suffix) == 0 ? True : False;
+}
+
+static result for_each_disk_file_with_suffix_recursive(
+    const char *directory_path,
+    const char *suffix,
+    VfsFileIterator iterator,
+    void *user_data) {
+    DIR *directory = opendir(directory_path);
+    if (!directory)
+        return Err;
+
+    struct dirent *entry = Null;
+    while ((entry = readdir(directory)) != Null) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        char child_path[PATH_MAX] = {0};
+        if (snprintf(child_path, sizeof(child_path), "%s/%s", directory_path, entry->d_name) >= (int)sizeof(child_path)) {
+            closedir(directory);
+            return Err;
+        }
+
+        struct stat st = {0};
+        if (lstat(child_path, &st) != 0) {
+            closedir(directory);
+            return Err;
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            if (for_each_disk_file_with_suffix_recursive(child_path, suffix, iterator, user_data) != Ok) {
+                closedir(directory);
+                return Err;
+            }
+            continue;
+        }
+
+        if (!S_ISREG(st.st_mode) || path_has_suffix(entry->d_name, suffix) != True)
+            continue;
+
+        if (iterator(child_path, user_data) != Ok) {
+            closedir(directory);
+            return Err;
+        }
+    }
+
+    closedir(directory);
+    return Ok;
+}
+
+result vfs_for_each_file_with_suffix(
+    const char *base_path,
+    const char *suffix,
+    VfsFileIterator iterator,
+    void *user_data) {
+    if (!base_path || !suffix || suffix[0] == '\0' || !iterator)
+        return Err;
+
+    if (vfs_state.mode != VfsModeArchive)
+        return for_each_disk_file_with_suffix_recursive(base_path, suffix, iterator, user_data);
+
+    char normalized_base[PATH_MAX] = {0};
+    if (normalize_path(base_path, normalized_base, sizeof(normalized_base)) != Ok)
+        return Err;
+
+    strip_dot_relative_prefix(normalized_base);
+    if (strcmp(normalized_base, vfs_state.source_path) == 0)
+        normalized_base[0] = '\0';
+
+    const usize normalized_base_length = strlen(normalized_base);
+
+    for (usize index = 0; index < vfs_state.entry_count; ++index) {
+        const VfsEntry *entry = &vfs_state.entries[index];
+        if (entry->is_directory)
+            continue;
+
+        if (normalized_base_length > 0) {
+            if (strncmp(entry->path, normalized_base, normalized_base_length) != 0)
+                continue;
+
+            const char next = entry->path[normalized_base_length];
+            if (next != '/' && next != '\0')
+                continue;
+        }
+
+        if (path_has_suffix(entry->path, suffix) != True)
+            continue;
+
+        if (iterator(entry->path, user_data) != Ok)
+            return Err;
+    }
+
+    return Ok;
+}
+
 result vfs_load_texture(const char *path, Texture2D *out_texture) {
     if (!path || !out_texture)
         return Err;

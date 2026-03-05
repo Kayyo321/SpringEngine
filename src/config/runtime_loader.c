@@ -4794,6 +4794,7 @@ result run_project_runtime(const char *project_path) {
     lighting_global_config_reset(&runtime_state.lighting_global_config);
     lighting_scene_selection_reset(&runtime_state.lighting_selection);
     shader_global_config_reset(&runtime_state.shader_global_config);
+    shader_library_reset(&runtime_state.shader_library);
 
     if (cache_autoload_actor_ids(project_toml.toptab) != Ok)
         goto fail;
@@ -4802,6 +4803,9 @@ result run_project_runtime(const char *project_path) {
         goto fail;
 
     if (shader_load_global_config(project_path, &runtime_state.shader_global_config) != Ok)
+        goto fail;
+
+    if (shader_library_load(&runtime_state.shader_global_config, &runtime_state.shader_library) != Ok)
         goto fail;
 
     runtime_state.dj_enabled = contains_autoload_actor_id("global_audio");
@@ -4862,6 +4866,7 @@ result run_project_runtime(const char *project_path) {
     lighting_global_config_reset(&runtime_state.lighting_global_config);
     lighting_scene_selection_reset(&runtime_state.lighting_selection);
     shader_global_config_reset(&runtime_state.shader_global_config);
+    shader_library_reset(&runtime_state.shader_library);
 
     if (project_ok)
         toml_free(project_toml);
@@ -4902,11 +4907,121 @@ fail:
         lighting_global_config_reset(&runtime_state.lighting_global_config);
         lighting_scene_selection_reset(&runtime_state.lighting_selection);
         shader_global_config_reset(&runtime_state.shader_global_config);
+        shader_library_reset(&runtime_state.shader_library);
     }
 
     if (project_ok)
         toml_free(project_toml);
 
+    vfs_unmount();
+    return Err;
+}
+
+result validate_project_configs(const char *project_path) {
+    toml_result_t project_toml = {0};
+    boolean project_ok = False;
+    Heap lighting_heap = NullHeap;
+    Heap shader_library_heap = NullHeap;
+
+    LightingGlobalConfig *lighting_global_config = Null;
+    ShaderLibrary *shader_library = Null;
+
+    if (!project_path || project_path[0] == '\0') {
+        log_err("Project path is missing");
+        return Err;
+    }
+
+    if (vfs_mount_project(project_path) != Ok) {
+        log_err("Project path '%s' is not a valid directory or .targame archive", project_path);
+        return Err;
+    }
+
+    usize conf_count = 0;
+    if (validate_conf_files(project_path, &conf_count) != Ok)
+        goto fail;
+
+    if (conf_count == 0) {
+        log_err("No .conf files found under '%s'", project_path);
+        goto fail;
+    }
+
+    if (version_check_project_requirement(project_path, Version) != Ok)
+        goto fail;
+
+    char springengine_config_path[PATH_MAX] = {0};
+    if (join_path(project_path, "springengine.conf", springengine_config_path, sizeof(springengine_config_path)) != Ok) {
+        log_err("Failed to resolve springengine.conf path for '%s'", project_path);
+        goto fail;
+    }
+
+    if (vfs_file_exists(springengine_config_path) != True) {
+        log_err("Required config missing: '%s'", springengine_config_path);
+        goto fail;
+    }
+
+    if (parse_toml_file(springengine_config_path, &project_toml) != Ok)
+        goto fail;
+    project_ok = True;
+
+    toml_datum_t boot_table = toml_get(project_toml.toptab, "Boot");
+    if (boot_table.type != TOML_TABLE) {
+        log_err("Config '%s' is missing [Boot] table", springengine_config_path);
+        goto fail;
+    }
+
+    toml_datum_t first_scene = toml_get(boot_table, "first_scene");
+    if (first_scene.type != TOML_STRING || !first_scene.u.s || first_scene.u.s[0] == '\0') {
+        log_err("Config '%s' is missing Boot.first_scene", springengine_config_path);
+        goto fail;
+    }
+
+    toml_datum_t autoload_data = toml_get(boot_table, "autoload_data");
+    if (autoload_data.type != TOML_STRING || !autoload_data.u.s || autoload_data.u.s[0] == '\0') {
+        log_err("Config '%s' is missing Boot.autoload_data", springengine_config_path);
+        goto fail;
+    }
+
+    lighting_heap = allocate(1, sizeof(LightingGlobalConfig));
+    lighting_global_config = (LightingGlobalConfig *)lighting_heap.pointer;
+    if (!lighting_global_config)
+        goto fail;
+    memset(lighting_global_config, 0, sizeof(*lighting_global_config));
+
+    if (lighting_load_global_config(project_path, lighting_global_config) != Ok)
+        goto fail;
+
+    ShaderGlobalConfig shader_global_config = {0};
+    if (shader_load_global_config(project_path, &shader_global_config) != Ok)
+        goto fail;
+
+    shader_library_heap = allocate(1, sizeof(ShaderLibrary));
+    shader_library = (ShaderLibrary *)shader_library_heap.pointer;
+    if (!shader_library)
+        goto fail;
+    memset(shader_library, 0, sizeof(*shader_library));
+
+    if (shader_library_load(&shader_global_config, shader_library) != Ok)
+        goto fail;
+
+    if (lighting_heap.pointer)
+        deallocate(lighting_heap);
+    if (shader_library_heap.pointer)
+        deallocate(shader_library_heap);
+
+    if (project_ok)
+        toml_free(project_toml);
+    vfs_unmount();
+
+    log_msg("Validation passed for project '%s' (%lu .conf files)", project_path, conf_count);
+    return Ok;
+
+fail:
+    if (lighting_heap.pointer)
+        deallocate(lighting_heap);
+    if (shader_library_heap.pointer)
+        deallocate(shader_library_heap);
+    if (project_ok)
+        toml_free(project_toml);
     vfs_unmount();
     return Err;
 }

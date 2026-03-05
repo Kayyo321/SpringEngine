@@ -306,3 +306,38 @@ springengine = "= 0.1.1"
 ```
 
 If the requirement does not pass, runtime exits with an error before opening the game window.
+
+## 12) Shader descriptor files (`shaders/*.shader.conf`)
+
+Shader descriptors are validated at startup and by `--validate-config`.
+
+Required table and keys:
+
+- `[Shader]`
+  - `id` (string)
+  - `vertex` (string)
+  - `fragment` (string)
+
+Optional keys/tables:
+
+- `schema` (int > 0)
+- `[Shader.States]`
+  - `blend` (`alpha`, `additive`, `none`)
+  - `depth_test` (bool)
+  - `depth_write` (bool)
+  - `cull` (`none`, `back`, `front`)
+- `[[Shader.Keywords]]`
+  - `name` (string)
+- `[[Shader.Uniforms]]`
+  - `name` (string)
+  - `type` (`float`, `vec2`, `vec3`, `vec4`, `color`, `texture2D`, `int`, `bool`)
+  - optional `source` (string)
+
+Validation rules currently enforced:
+
+- shader ids must be unique across all descriptor files
+- keyword names must be unique per shader
+- uniform names must be unique per shader
+- unsupported blend/cull/uniform type values fail validation
+
+If the shader directory is missing, runtime continues with an empty shader registry for backward compatibility.

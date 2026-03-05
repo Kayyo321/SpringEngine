@@ -4,6 +4,7 @@
 #include "common.h"
 
 result run_project_runtime(const char *project_path);
+result validate_project_configs(const char *project_path);
 result runtime_request_scene_load(const char *scene_path);
 const char *runtime_current_scene_path(void);
 result runtime_instantiate_prefab(const char *prefab_ref_id, boolean has_position, float x, float y, float z, char *out_actor_id, usize out_actor_id_size);
