@@ -486,6 +486,13 @@ Heap reallocate(Heap heap, usize new_size) {
     return node->heap;
 }
 
+#if !defined(Debug) && !defined(Testing)
+static void wipe_memory(void *pointer, usize size) {
+    memset(pointer, 0, size); // 0 out all allocations on release builds
+                              // TODO: consider making this an optional feature for release
+}
+#endif
+
 void deallocate(Heap heap) {
     // deallocate the heap and remove it from the list
     if (!heap.pointer) {
@@ -498,6 +505,10 @@ void deallocate(Heap heap) {
         log_err("Invalid heap provided for deallocation.");
         quit(Err);
     }
+
+    #if !defined(Debug) && !defined(Testing)
+        wipe_memory(node->heap.pointer, node->heap.size);
+    #endif
 
     free(node->heap.pointer);
     node->heap.pointer = Null;
@@ -512,13 +523,11 @@ void deallocate(Heap heap) {
     *node->prev_next = node->next;
     if (node->next) {
         node->next->prev_next = node->prev_next;
+    } else if (node->prev_next == &heap_list_head->next) {
+        heap_list_last = heap_list_head;
     } else {
-        if (node->prev_next == &heap_list_head->next) {
-            heap_list_last = heap_list_head;
-        } else {
-            HeapList *prev = (HeapList *)((char *)node->prev_next - offsetof(HeapList, next));
-            heap_list_last = prev;
-        }
+        HeapList *prev = (HeapList *)((char *)node->prev_next - offsetof(HeapList, next));
+        heap_list_last = prev;
     }
 
     free(node);

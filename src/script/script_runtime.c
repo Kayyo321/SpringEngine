@@ -14,9 +14,9 @@ typedef struct {
     boolean initialized;
 } ScriptComponentState;
 
-static const char *RUNTIME_REGISTRY_KEY = "__springengine_runtime";
-static const char *CURRENT_ACTOR_REGISTRY_KEY = "__springengine_current_actor";
-static const char *COMPONENT_CACHE_REGISTRY_KEY = "__springengine_component_cache";
+static const char *RuntimeActorRegistryKey = "__springengine_runtime";
+static const char *CurrentActorRegistryKey = "__springengine_current_actor";
+static const char *ComponentCacheRegistryKey = "__springengine_component_cache";
 
 result runtime_join_path(const char *base, const char *path, char *out_path, usize out_size) {
     return vfs_resolve_path(base, path, out_path, out_size);
@@ -26,7 +26,7 @@ Actor *lua_runtime_current_actor(lua_State *lua_state) {
     if (!lua_state)
         return Null;
 
-    lua_getfield(lua_state, LUA_REGISTRYINDEX, CURRENT_ACTOR_REGISTRY_KEY);
+    lua_getfield(lua_state, LUA_REGISTRYINDEX, CurrentActorRegistryKey);
     Actor *actor = (Actor *)lua_touserdata(lua_state, -1);
     lua_pop(lua_state, 1);
     return actor;
@@ -41,14 +41,14 @@ void lua_runtime_set_current_actor(lua_State *lua_state, Actor *actor) {
     else
         lua_pushnil(lua_state);
 
-    lua_setfield(lua_state, LUA_REGISTRYINDEX, CURRENT_ACTOR_REGISTRY_KEY);
+    lua_setfield(lua_state, LUA_REGISTRYINDEX, CurrentActorRegistryKey);
 }
 
 ScriptRuntime *lua_runtime_instance(lua_State *lua_state) {
     if (!lua_state)
         return Null;
 
-    lua_getfield(lua_state, LUA_REGISTRYINDEX, RUNTIME_REGISTRY_KEY);
+    lua_getfield(lua_state, LUA_REGISTRYINDEX, RuntimeActorRegistryKey);
     ScriptRuntime *runtime = (ScriptRuntime *)lua_touserdata(lua_state, -1);
     lua_pop(lua_state, 1);
     return runtime;
@@ -150,7 +150,7 @@ static result register_engine_libraries(ScriptRuntime *runtime) {
         return Err;
 
     lua_pushlightuserdata(runtime->lua_state, runtime);
-    lua_setfield(runtime->lua_state, LUA_REGISTRYINDEX, RUNTIME_REGISTRY_KEY);
+    lua_setfield(runtime->lua_state, LUA_REGISTRYINDEX, RuntimeActorRegistryKey);
 
     if (register_preload_module(runtime->lua_state, "Engine.Input", luaopen_engine_input) != Ok)
         return Err;
@@ -800,12 +800,12 @@ static result lua_runtime_push_component_cache(lua_State *lua_state) {
     if (!lua_state)
         return Err;
 
-    lua_getfield(lua_state, LUA_REGISTRYINDEX, COMPONENT_CACHE_REGISTRY_KEY);
+    lua_getfield(lua_state, LUA_REGISTRYINDEX, ComponentCacheRegistryKey);
     if (!lua_istable(lua_state, -1)) {
         lua_pop(lua_state, 1);
         lua_newtable(lua_state);
         lua_pushvalue(lua_state, -1);
-        lua_setfield(lua_state, LUA_REGISTRYINDEX, COMPONENT_CACHE_REGISTRY_KEY);
+        lua_setfield(lua_state, LUA_REGISTRYINDEX, ComponentCacheRegistryKey);
     }
 
     return Ok;
