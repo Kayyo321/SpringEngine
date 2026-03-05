@@ -4,6 +4,7 @@
 #include "runtime_loader.h"
 
 #include "lighting_config.h"
+#include "shader_config.h"
 
 #include "actor/actor.h"
 #include "actor/camera_component.h"
@@ -58,6 +59,7 @@ typedef struct {
     char pending_scene_path[PATH_MAX];
     LightingGlobalConfig lighting_global_config;
     LightingSceneSelection lighting_selection;
+    ShaderGlobalConfig shader_global_config;
     char autoload_actor_ids[RuntimeMaxAutoloadActors][RuntimeMaxAutoloadActorIdLength];
     PendingPrefabInstantiation pending_prefab_instantiations[RuntimeMaxPendingPrefabInstantiations];
     UiRuntime *ui_runtime;

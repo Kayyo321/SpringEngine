@@ -10,6 +10,7 @@
 #include "dj/dj.h"
 #include "project_config.h"
 #include "script/script_runtime.h"
+#include "version_config.h"
 #include "ui/ui_runtime.h"
 #include "vfs.h"
 #include "windowman/windowman.h"
@@ -4684,6 +4685,11 @@ result run_project_runtime(const char *project_path) {
         return Err;
     }
 
+    if (version_check_project_requirement(project_path, Version) != Ok) {
+        vfs_unmount();
+        return Err;
+    }
+
     memset(&runtime_state, 0, sizeof(runtime_state));
 
     char springengine_config_path[PATH_MAX] = {0};
@@ -4787,11 +4793,15 @@ result run_project_runtime(const char *project_path) {
     runtime_state.ui_runtime = Null;
     lighting_global_config_reset(&runtime_state.lighting_global_config);
     lighting_scene_selection_reset(&runtime_state.lighting_selection);
+    shader_global_config_reset(&runtime_state.shader_global_config);
 
     if (cache_autoload_actor_ids(project_toml.toptab) != Ok)
         goto fail;
 
     if (lighting_load_global_config(project_path, &runtime_state.lighting_global_config) != Ok)
+        goto fail;
+
+    if (shader_load_global_config(project_path, &runtime_state.shader_global_config) != Ok)
         goto fail;
 
     runtime_state.dj_enabled = contains_autoload_actor_id("global_audio");
@@ -4851,6 +4861,7 @@ result run_project_runtime(const char *project_path) {
     runtime_state.scene_light_multiplier = 1.0f;
     lighting_global_config_reset(&runtime_state.lighting_global_config);
     lighting_scene_selection_reset(&runtime_state.lighting_selection);
+    shader_global_config_reset(&runtime_state.shader_global_config);
 
     if (project_ok)
         toml_free(project_toml);
@@ -4890,6 +4901,7 @@ fail:
         runtime_state.scene_light_multiplier = 1.0f;
         lighting_global_config_reset(&runtime_state.lighting_global_config);
         lighting_scene_selection_reset(&runtime_state.lighting_selection);
+        shader_global_config_reset(&runtime_state.shader_global_config);
     }
 
     if (project_ok)

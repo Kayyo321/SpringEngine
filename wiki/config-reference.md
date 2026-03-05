@@ -234,3 +234,75 @@ Current runtime applies:
 - unknown parent id fails
 - parent cycles fail
 - invalid anchors fail
+
+## 10) Shader global config
+
+### `global-shaders.conf` (optional)
+
+If this file is missing, runtime now loads built-in shader defaults for backward compatibility.
+
+Runtime also accepts `global.shaders.conf` as an alternate file name.
+
+Expected top-level table:
+
+- `[ShaderGlobal]`
+
+Supported optional fields:
+
+- `allow_compile_fallback` (bool)
+- `active_profile` (string)
+- `[ShaderGlobal.Paths]`
+  - `shader_dir`
+  - `material_dir`
+- `[ShaderGlobal.Defaults]`
+  - `sprite_material`
+  - `ui_material`
+  - `post_stack`
+- `[[ShaderGlobal.Profiles]]`
+  - `id`
+  - `max_variants_per_shader`
+  - `allow_expensive_post`
+
+Default behavior when no file exists:
+
+- `active_profile = "default"`
+- `allow_compile_fallback = true`
+- `shader_dir = "./shaders"`
+- `material_dir = "./materials"`
+- `sprite_material = "default_sprite.mat.conf"`
+- `ui_material = "default_ui.mat.conf"`
+- `post_stack = "default.postfx.conf"`
+- active profile defaults to `max_variants_per_shader = 64`, `allow_expensive_post = true`
+
+## 11) Engine version requirement
+
+### `version.conf` (optional)
+
+When present, runtime validates the game's required SpringEngine version before startup.
+
+Supported requirement operators:
+
+- `>` (current runtime version must be strictly greater)
+- `=` (current runtime version must match exactly)
+
+Supported config shapes:
+
+```toml
+[Version]
+springengine = "> 0.1.0"
+```
+
+or
+
+```toml
+[Version]
+required = "= 0.1.1"
+```
+
+or root-level keys:
+
+```toml
+springengine = "= 0.1.1"
+```
+
+If the requirement does not pass, runtime exits with an error before opening the game window.

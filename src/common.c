@@ -496,12 +496,12 @@ Heap reallocate(Heap heap, usize new_size) {
     return node->heap;
 }
 
+#if !defined(Debug) && !defined(Testing)
 static void wipe_memory(void *pointer, usize size) {
-    #if !defined(Debug) && !defined(Testing)
-        memset(pointer, 0, size); // 0 out all allocations on release builds
+    memset(pointer, 0, size); // 0 out all allocations on release builds
                                   // TODO: consider making this an optional feature for release
-    #endif
 }
+#endif
 
 void deallocate(Heap heap) {
     // deallocate the heap and remove it from the list
@@ -516,7 +516,9 @@ void deallocate(Heap heap) {
         quit(Err);
     }
 
+#if !defined(Debug) && !defined(Testing)
     wipe_memory(node->heap.pointer, node->heap.size);
+#endif
 
     free(node->heap.pointer);
     node->heap.pointer = Null;
