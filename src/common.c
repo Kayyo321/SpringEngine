@@ -340,6 +340,7 @@ result close_logger(void) {
 }
 
 static result log_message(const char *fmt, va_list args, int log_flags) {
+#define double_puts(str) fputs(str, log_file); fputs(str, stderr);
     if (!log_file) 
         return Err;
 
@@ -350,17 +351,26 @@ static result log_message(const char *fmt, va_list args, int log_flags) {
     char msg_buffer[1024];
     vsnprintf(msg_buffer, sizeof(msg_buffer), fmt, args);
 
-    // log the message to the file
-    fprintf(log_file, (log_flags & LogFlagError) ? "(EE) [%s] %s\n" : "[%s] %s\n", time_buffer, msg_buffer);
-    fflush(log_file);
+    if (log_flags & LogFlagError) {
+        double_puts("(E) ");
+        ++error_cnt;
+    }  
+    
+    if (log_flags & LogFlagWarn) {
+        double_puts("(W) ");
+        ++warn_cnt;
+    }
 
-    // log the message to the console as well
-    fprintf(stderr, (log_flags & LogFlagError) ? "(EE) [%s] %s\n" : "[%s] %s\n", time_buffer, msg_buffer);
+    double_puts(time_buffer);
+    double_puts(" - ");
+    double_puts(msg_buffer);
+    double_puts("\n");
 
     error_cnt += (log_flags & LogFlagError);
     warn_cnt += (log_flags & LogFlagWarn);
 
     return Ok;
+#undef double_puts
 }
 
 void log_msg(const char *fmt, ...) {

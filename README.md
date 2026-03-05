@@ -77,6 +77,7 @@ Related design docs:
 - `docs/config-system-vision.md`
 - `docs/ui-system-vision.md`
 - `docs/lighting-system-vision.md`
+- `docs/shader-system-roadmap.md`
 - `docs/child-actor-system-vision.md`
 
 ## Wiki
