@@ -34,6 +34,10 @@ void run_all_tests(void) {
     run_dj_tests();
     run_maker_tests();
     run_project_config_tests();
+    run_version_config_tests();
+    run_shader_config_tests();
+    run_shader_registry_tests();
+    run_material_registry_tests();
     run_ui_runtime_tests();
     run_runtime_loader_tests();
     run_script_runtime_tests();
