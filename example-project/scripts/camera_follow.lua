@@ -71,6 +71,11 @@ function camera_follow:update()
     )
 
     Camera.set_target(x, y, z)
+
+    local desired_fov = _G.__springengine_camera_fov
+    if type(desired_fov) == "number" and Camera.set_fov_y then
+        Camera.set_fov_y(desired_fov)
+    end
 end
 
 return camera_follow

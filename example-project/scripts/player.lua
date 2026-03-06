@@ -33,6 +33,9 @@ local player = {
 	death_fade_elapsed = 0.0,
 	death_scene_requested = false,
 	hud_hidden_for_transition = false,
+	fov_walk = 30.0,
+	fov_run = 60.0,
+	fov_lerp_speed = 4.0,
 }
 
 local function get_hud_stats()
@@ -212,6 +215,8 @@ function player:start()
 	self.vignette_intensity = self.health
 	self.hurt_lerp_thread = nil
 
+	_G.__springengine_camera_fov = self.fov_run
+
 	local stats = get_hud_stats()
 	stats.player_max_health = self.health
 	stats.player_health = self.health
@@ -364,6 +369,12 @@ function player:update()
 		anim_conf.set_number("vertical_speed", vertical_velocity)
 		anim_conf.set_number("grounded", is_grounded and 1.0 or 0.0)
 	end
+
+	local is_running = (run_multiplier > 1.0) and is_moving
+	local target_fov = is_running and self.fov_run or self.fov_walk
+	local current_fov = type(_G.__springengine_camera_fov) == "number" and _G.__springengine_camera_fov or self.fov_run
+	local fov_alpha = 1.0 - math.exp(-self.fov_lerp_speed * delta_time)
+	_G.__springengine_camera_fov = current_fov + (target_fov - current_fov) * fov_alpha
 end
 
 function player:on_destroy()
