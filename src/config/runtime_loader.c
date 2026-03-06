@@ -57,6 +57,8 @@ static result direction_light_component_initialize(Actor *actor, ActorComponent 
 static result texture_cache_acquire(const char *resolved_texture_path, Texture2D *out_texture);
 static void texture_cache_release(const char *resolved_texture_path, Texture2D texture);
 static void texture_cache_reset(void);
+static void shader_cache_reset(void);
+static result shader_cache_acquire_for_material(const char *material_id, Shader **out_shader, int *out_time_loc, int *out_speed_loc, int *out_freq_loc, int *out_strength_loc);
 static unsigned char scale_color_channel(unsigned char channel, float multiplier);
 static Color apply_global_light_to_color(Color color);
 static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
@@ -89,10 +91,26 @@ typedef struct {
     usize ref_count;
 } SharedTextureEntry;
 
+typedef struct {
+    char shader_id[ShaderRegistryMaxIdLength];
+    Shader shader;
+    int time_location;
+    int distort_speed_location;
+    int distort_frequency_location;
+    int distort_strength_location;
+    boolean loaded;
+    boolean attempted_load;
+} SharedShaderEntry;
+
 static Heap shared_texture_entries_heap = {0};
 static SharedTextureEntry *shared_texture_entries = 0;
 static usize shared_texture_entry_count = 0;
 static usize shared_texture_entry_capacity = 0;
+
+static Heap shared_shader_entries_heap = {0};
+static SharedShaderEntry *shared_shader_entries = 0;
+static usize shared_shader_entry_count = 0;
+static usize shared_shader_entry_capacity = 0;
 
 static result ensure_shared_texture_capacity(usize required_capacity) {
     if (required_capacity <= shared_texture_entry_capacity)
@@ -214,6 +232,167 @@ static void texture_cache_reset(void) {
     shared_texture_entries = Null;
     shared_texture_entry_count = 0;
     shared_texture_entry_capacity = 0;
+}
+
+static result ensure_shared_shader_capacity(usize required_capacity) {
+    if (required_capacity <= shared_shader_entry_capacity)
+        return Ok;
+
+    usize next_capacity = shared_shader_entry_capacity == 0 ? 8 : shared_shader_entry_capacity * 2;
+    while (next_capacity < required_capacity)
+        next_capacity *= 2;
+
+    const usize next_size = next_capacity * sizeof(SharedShaderEntry);
+    if (!shared_shader_entries) {
+        shared_shader_entries_heap = allocate(next_capacity, sizeof(SharedShaderEntry));
+        shared_shader_entries = (SharedShaderEntry *)shared_shader_entries_heap.pointer;
+        if (!shared_shader_entries)
+            return Err;
+    } else {
+        shared_shader_entries_heap = reallocate(shared_shader_entries_heap, next_size);
+        shared_shader_entries = (SharedShaderEntry *)shared_shader_entries_heap.pointer;
+        if (!shared_shader_entries)
+            return Err;
+    }
+
+    if (next_capacity > shared_shader_entry_capacity) {
+        memset(shared_shader_entries + shared_shader_entry_capacity, 0, (next_capacity - shared_shader_entry_capacity) * sizeof(SharedShaderEntry));
+    }
+
+    shared_shader_entry_capacity = next_capacity;
+    return Ok;
+}
+
+static int find_shared_shader_index(const char *shader_id) {
+    if (!shader_id || shader_id[0] == '\0')
+        return -1;
+
+    for (usize index = 0; index < shared_shader_entry_count; ++index) {
+        if (strcmp(shared_shader_entries[index].shader_id, shader_id) == 0)
+            return (int)index;
+    }
+
+    return -1;
+}
+
+static const ShaderDescriptor *find_shader_descriptor_by_id(const char *shader_id) {
+    if (!shader_id || shader_id[0] == '\0')
+        return Null;
+
+    for (usize index = 0; index < runtime_state.shader_library.shader_count; ++index) {
+        const ShaderDescriptor *descriptor = &runtime_state.shader_library.shaders[index];
+        if (strcmp(descriptor->id, shader_id) == 0)
+            return descriptor;
+    }
+
+    return Null;
+}
+
+static result shader_cache_acquire_for_material(const char *material_id, Shader **out_shader, int *out_time_loc, int *out_speed_loc, int *out_freq_loc, int *out_strength_loc) {
+    if (!material_id || material_id[0] == '\0' || !out_shader)
+        return Err;
+
+    *out_shader = Null;
+    if (out_time_loc)
+        *out_time_loc = -1;
+    if (out_speed_loc)
+        *out_speed_loc = -1;
+    if (out_freq_loc)
+        *out_freq_loc = -1;
+    if (out_strength_loc)
+        *out_strength_loc = -1;
+
+    const MaterialDescriptor *material = material_library_find_by_id(&runtime_state.material_library, material_id);
+    if (!material)
+        return Err;
+
+    const char *shader_id = material->shader_id;
+    if (!shader_id || shader_id[0] == '\0')
+        return Err;
+
+    const int cached_index = find_shared_shader_index(shader_id);
+    if (cached_index >= 0) {
+        SharedShaderEntry *entry = &shared_shader_entries[cached_index];
+        if (!entry->loaded)
+            return Err;
+
+        *out_shader = &entry->shader;
+        if (out_time_loc)
+            *out_time_loc = entry->time_location;
+        if (out_speed_loc)
+            *out_speed_loc = entry->distort_speed_location;
+        if (out_freq_loc)
+            *out_freq_loc = entry->distort_frequency_location;
+        if (out_strength_loc)
+            *out_strength_loc = entry->distort_strength_location;
+        return Ok;
+    }
+
+    if (ensure_shared_shader_capacity(shared_shader_entry_count + 1) != Ok)
+        return Err;
+
+    SharedShaderEntry *entry = &shared_shader_entries[shared_shader_entry_count++];
+    memset(entry, 0, sizeof(*entry));
+
+    if (snprintf(entry->shader_id, sizeof(entry->shader_id), "%s", shader_id) >= (int)sizeof(entry->shader_id))
+        return Err;
+
+    if (vfs_is_archive_mode()) {
+        log_warn("Shader loading from archive mode is not supported yet for shader '%s'", shader_id);
+        return Err;
+    }
+
+    const ShaderDescriptor *shader_descriptor = find_shader_descriptor_by_id(shader_id);
+    if (!shader_descriptor)
+        return Err;
+
+    char vertex_path[PATH_MAX] = {0};
+    char fragment_path[PATH_MAX] = {0};
+    if (join_path(runtime_state.shader_global_config.shader_root, shader_descriptor->vertex, vertex_path, sizeof(vertex_path)) != Ok ||
+        join_path(runtime_state.shader_global_config.shader_root, shader_descriptor->fragment, fragment_path, sizeof(fragment_path)) != Ok) {
+        log_err("Failed to resolve shader paths for '%s'", shader_id);
+        return Err;
+    }
+
+    entry->attempted_load = True;
+    entry->shader = LoadShader(vertex_path, fragment_path);
+    if (entry->shader.id == 0) {
+        log_err("Failed to load shader '%s' (%s, %s)", shader_id, vertex_path, fragment_path);
+        return Err;
+    }
+
+    entry->time_location = GetShaderLocation(entry->shader, "u_time");
+    entry->distort_speed_location = GetShaderLocation(entry->shader, "u_distort_speed");
+    entry->distort_frequency_location = GetShaderLocation(entry->shader, "u_distort_frequency");
+    entry->distort_strength_location = GetShaderLocation(entry->shader, "u_distort_strength");
+    entry->loaded = True;
+
+    *out_shader = &entry->shader;
+    if (out_time_loc)
+        *out_time_loc = entry->time_location;
+    if (out_speed_loc)
+        *out_speed_loc = entry->distort_speed_location;
+    if (out_freq_loc)
+        *out_freq_loc = entry->distort_frequency_location;
+    if (out_strength_loc)
+        *out_strength_loc = entry->distort_strength_location;
+
+    return Ok;
+}
+
+static void shader_cache_reset(void) {
+    for (usize index = 0; index < shared_shader_entry_count; ++index) {
+        if (shared_shader_entries[index].loaded && shared_shader_entries[index].shader.id != 0)
+            UnloadShader(shared_shader_entries[index].shader);
+    }
+
+    if (shared_shader_entries_heap.pointer)
+        deallocate(shared_shader_entries_heap);
+
+    shared_shader_entries_heap = NullHeap;
+    shared_shader_entries = Null;
+    shared_shader_entry_count = 0;
+    shared_shader_entry_capacity = 0;
 }
 
 typedef struct {
@@ -1032,6 +1211,17 @@ static const toml_datum_t *find_animated_sprite_component_table(toml_datum_t act
     return Null;
 }
 
+static const char *find_material_main_texture_ref(const char *material_id) {
+    if (!material_id || material_id[0] == '\0')
+        return Null;
+
+    const MaterialDescriptor *material = material_library_find_by_id(&runtime_state.material_library, material_id);
+    if (!material)
+        return Null;
+
+    return material_descriptor_find_texture_slot(material, "main");
+}
+
 static result static_sprite_component_initialize(Actor *actor, ActorComponent *component, void *context) {
     (void)actor;
     (void)context;
@@ -1043,6 +1233,14 @@ static result static_sprite_component_initialize(Actor *actor, ActorComponent *c
     if (!state->texture_path[0])
         return Err;
 
+    const char *material_main_texture = find_material_main_texture_ref(state->material_id);
+    if (material_main_texture && material_main_texture[0] != '\0') {
+        if (snprintf(state->texture_path, sizeof(state->texture_path), "%s", material_main_texture) >= (int)sizeof(state->texture_path)) {
+            log_err("Material main texture path is too long for actor '%s'", actor && actor->id ? actor->id : "<unknown>");
+            return Err;
+        }
+    }
+
     if (join_path(runtime_state.project_root, state->texture_path, state->resolved_texture_path, sizeof(state->resolved_texture_path)) != Ok) {
         log_err("Failed to resolve static sprite texture path '%s'", state->texture_path);
         return Err;
@@ -1050,6 +1248,8 @@ static result static_sprite_component_initialize(Actor *actor, ActorComponent *c
 
     state->attempted_load = False;
     state->loaded = False;
+    state->material_checked = False;
+    state->material_resolved = False;
     return Ok;
 }
 
@@ -1452,6 +1652,32 @@ static void static_sprite_component_draw(StaticSpriteState *state, CameraCompone
     if (state->actor)
         actor_rotation_z = state->actor->transform.rotation_euler.z;
 
+    Shader *shader = Null;
+    int time_location = -1;
+    int speed_location = -1;
+    int frequency_location = -1;
+    int strength_location = -1;
+    if (state->material_resolved && shader_cache_acquire_for_material(state->material_id, &shader, &time_location, &speed_location, &frequency_location, &strength_location) == Ok && shader) {
+        const float runtime_time = (float)GetTime();
+        const float default_speed = 3.5f;
+        const float default_frequency = 22.0f;
+        const float default_strength = 0.018f;
+
+        if (time_location >= 0)
+            SetShaderValue(*shader, time_location, &runtime_time, SHADER_UNIFORM_FLOAT);
+        if (speed_location >= 0)
+            SetShaderValue(*shader, speed_location, &default_speed, SHADER_UNIFORM_FLOAT);
+        if (frequency_location >= 0)
+            SetShaderValue(*shader, frequency_location, &default_frequency, SHADER_UNIFORM_FLOAT);
+        if (strength_location >= 0)
+            SetShaderValue(*shader, strength_location, &default_strength, SHADER_UNIFORM_FLOAT);
+
+        BeginShaderMode(*shader);
+        DrawTexturePro(state->texture, source, destination, anchor, state->rotation + actor_rotation_z, apply_global_light_to_color(state->tint));
+        EndShaderMode();
+        return;
+    }
+
     DrawTexturePro(state->texture, source, destination, anchor, state->rotation + actor_rotation_z, apply_global_light_to_color(state->tint));
 }
 
@@ -1821,6 +2047,22 @@ static result animated_sprite_component_initialize(Actor *actor, ActorComponent 
         state->sheet_count++;
     }
 
+    const char *material_main_texture = find_material_main_texture_ref(state->material_id);
+    if (material_main_texture && material_main_texture[0] != '\0') {
+        for (int sheet_index = 0; sheet_index < state->sheet_count; ++sheet_index) {
+            AnimatedSpriteSheet *sheet = &state->sheets[sheet_index];
+            if (snprintf(sheet->texture_path, sizeof(sheet->texture_path), "%s", material_main_texture) >= (int)sizeof(sheet->texture_path)) {
+                log_err("Material main texture path is too long for actor '%s'", actor && actor->id ? actor->id : "<unknown>");
+                goto cleanup;
+            }
+
+            if (join_path(runtime_state.project_root, sheet->texture_path, sheet->resolved_texture_path, sizeof(sheet->resolved_texture_path)) != Ok) {
+                log_err("Failed to resolve material main texture path '%s'", sheet->texture_path);
+                goto cleanup;
+            }
+        }
+    }
+
     for (int top_level_index = 0; top_level_index < animation_toml.toptab.u.tab.size; ++top_level_index) {
         toml_datum_t value = animation_toml.toptab.u.tab.value[top_level_index];
         if (value.type != TOML_TABLE)
@@ -1997,6 +2239,8 @@ static result animated_sprite_component_initialize(Actor *actor, ActorComponent 
     state->frame_timer = 0.0f;
     state->has_previous_actor_position = False;
     state->valid = True;
+    state->material_checked = False;
+    state->material_resolved = False;
 
     parse_result = Ok;
 
@@ -2179,6 +2423,32 @@ static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraCom
     float actor_rotation_z = 0.0f;
     if (state->actor)
         actor_rotation_z = state->actor->transform.rotation_euler.z;
+
+    Shader *shader = Null;
+    int time_location = -1;
+    int speed_location = -1;
+    int frequency_location = -1;
+    int strength_location = -1;
+    if (state->material_resolved && shader_cache_acquire_for_material(state->material_id, &shader, &time_location, &speed_location, &frequency_location, &strength_location) == Ok && shader) {
+        const float runtime_time = (float)GetTime();
+        const float default_speed = 3.5f;
+        const float default_frequency = 22.0f;
+        const float default_strength = 0.018f;
+
+        if (time_location >= 0)
+            SetShaderValue(*shader, time_location, &runtime_time, SHADER_UNIFORM_FLOAT);
+        if (speed_location >= 0)
+            SetShaderValue(*shader, speed_location, &default_speed, SHADER_UNIFORM_FLOAT);
+        if (frequency_location >= 0)
+            SetShaderValue(*shader, frequency_location, &default_frequency, SHADER_UNIFORM_FLOAT);
+        if (strength_location >= 0)
+            SetShaderValue(*shader, strength_location, &default_strength, SHADER_UNIFORM_FLOAT);
+
+        BeginShaderMode(*shader);
+        DrawTexturePro(sheet->texture, source, destination, anchor, state->rotation + actor_rotation_z, apply_global_light_to_color(state->tint));
+        EndShaderMode();
+        return;
+    }
 
     DrawTexturePro(sheet->texture, source, destination, anchor, state->rotation + actor_rotation_z, apply_global_light_to_color(state->tint));
 }
@@ -4912,6 +5182,7 @@ result run_project_runtime(const char *project_path) {
     }
 
     texture_cache_reset();
+    shader_cache_reset();
 
     if (window_opened)
         close_window();
@@ -4954,6 +5225,7 @@ fail:
         }
 
         texture_cache_reset();
+        shader_cache_reset();
 
         if (window_opened)
             close_window();
