@@ -6,6 +6,7 @@ local Rigidbody = require("Engine.Rigidbody")
 local DJ = require("Engine.DJ")
 local Time = require("Engine.Time")
 local UI = require("Engine.UI")
+local Async = require("Engine.Async")
 
 local player = {
 	health = 100.0,
@@ -19,6 +20,9 @@ local player = {
 	stomp_channel_volume = 0.1,
 	facing_x = 1.0,
 	hurt_timer = 0.0,
+	vignette_intensity = 100.0,
+	hurt_lerp_thread = nil,
+	hurt_lerp_duration = 0.25,
 	is_dead = false,
 	is_dying_transition = false,
 	death_animation_delay = 0.80,
@@ -152,8 +156,29 @@ local function update_vignette_from_health(self)
 
 	local vignette = self:get_material_by_name("vignette")
 	if vignette and vignette.set then
-		vignette.set("intensity", self.health)
+		vignette.set("intensity", self.vignette_intensity)
 	end
+end
+
+local function lerp_vignette_to_health(self)
+	if self.hurt_lerp_thread and self.hurt_lerp_thread:is_alive() then
+		self.hurt_lerp_thread:cancel()
+	end
+
+	local from = self.vignette_intensity
+	local to = self.health
+	local duration = self.hurt_lerp_duration
+
+	self.hurt_lerp_thread = Async.start(function()
+		local elapsed = 0.0
+		while elapsed < duration do
+			local t = elapsed / duration
+			self.vignette_intensity = from + (to - from) * t
+			Async.yield()
+			elapsed = elapsed + Time.delta_time()
+		end
+		self.vignette_intensity = to
+	end)
 end
 
 local function apply_knockback(self, knockback_direction_x)
@@ -184,6 +209,8 @@ function player:start()
 	self.death_fade_elapsed = 0.0
 	self.death_scene_requested = false
 	self.hud_hidden_for_transition = false
+	self.vignette_intensity = self.health
+	self.hurt_lerp_thread = nil
 
 	local stats = get_hud_stats()
 	stats.player_max_health = self.health
@@ -375,6 +402,7 @@ function player:take_damage(amount, source_x)
 		set_anim_bool(self, "hurt", true)
 	end
 
+	lerp_vignette_to_health(self)
 	apply_knockback(self, knockback_direction_x)
 
 	if self.health <= 0.0 then
