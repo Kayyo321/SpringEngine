@@ -5702,6 +5702,15 @@ result run_project_runtime(const char *project_path) {
         goto fail;
     script_runtime_bind_registry(&runtime_state.script_runtime, &runtime_state.actor_registry);
 
+    toml_datum_t runtime_table = toml_get(project_toml.toptab, "Runtime");
+    if (runtime_table.type == TOML_TABLE) {
+        toml_datum_t max_frame_delta = toml_get(runtime_table, "max_frame_delta_seconds");
+        if (max_frame_delta.type == TOML_FP64 && max_frame_delta.u.fp64 > 0.0)
+            runtime_state.script_runtime.time_max_delta_time = (float)max_frame_delta.u.fp64;
+        else if (max_frame_delta.type == TOML_INT64 && max_frame_delta.u.int64 > 0)
+            runtime_state.script_runtime.time_max_delta_time = (float)max_frame_delta.u.int64;
+    }
+
     if (ui_runtime_create(&runtime_state.ui_runtime, project_path, runtime_state.ui_root, &runtime_state.script_runtime) != Ok)
         goto fail;
 
