@@ -68,5 +68,8 @@ int luaopen_engine(lua_State *lua_state) {
     luaL_requiref(lua_state, "Engine.Disk", luaopen_engine_disk, 0);
     lua_setfield(lua_state, -2, "Disk");
 
+    luaL_requiref(lua_state, "Engine.Async", luaopen_engine_async, 0);
+    lua_setfield(lua_state, -2, "Async");
+
     return 1;
 }

@@ -25,6 +25,7 @@ typedef struct {
 
 result script_runtime_init(ScriptRuntime *runtime, const char *project_root, DJ *dj);
 void script_runtime_begin_frame(ScriptRuntime *runtime);
+void script_async_tick(ScriptRuntime *runtime);
 void script_runtime_bind_registry(ScriptRuntime *runtime, ActorRegistry *actor_registry);
 void script_runtime_dispose(ScriptRuntime *runtime);
 

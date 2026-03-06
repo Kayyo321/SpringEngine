@@ -174,6 +174,8 @@ static result register_engine_libraries(ScriptRuntime *runtime) {
         return Err;
     if (register_preload_module(runtime->lua_state, "Engine.Disk", luaopen_engine_disk) != Ok)
         return Err;
+    if (register_preload_module(runtime->lua_state, "Engine.Async", luaopen_engine_async) != Ok)
+        return Err;
     if (register_preload_module(runtime->lua_state, "Engine", luaopen_engine) != Ok)
         return Err;
 
@@ -1208,6 +1210,7 @@ void script_runtime_begin_frame(ScriptRuntime *runtime) {
     runtime->time_unscaled_elapsed_time += runtime->time_raw_delta_time;
     runtime->time_elapsed_time += runtime->time_delta_time;
     runtime->time_frame_count++;
+    script_async_tick(runtime);
 }
 
 void script_runtime_bind_registry(ScriptRuntime *runtime, ActorRegistry *actor_registry) {
