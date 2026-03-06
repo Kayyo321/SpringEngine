@@ -4,6 +4,7 @@
 #include "runtime_loader.h"
 
 #include "lighting_config.h"
+#include "material_registry.h"
 #include "shader_config.h"
 #include "shader_registry.h"
 
@@ -62,6 +63,7 @@ typedef struct {
     LightingSceneSelection lighting_selection;
     ShaderGlobalConfig shader_global_config;
     ShaderLibrary shader_library;
+    MaterialLibrary material_library;
     char autoload_actor_ids[RuntimeMaxAutoloadActors][RuntimeMaxAutoloadActorIdLength];
     PendingPrefabInstantiation pending_prefab_instantiations[RuntimeMaxPendingPrefabInstantiations];
     UiRuntime *ui_runtime;

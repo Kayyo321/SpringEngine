@@ -142,6 +142,15 @@ Runtime looks up components via actor table, checking overrides first.
 - `StaticColor`
 - `Script`
 
+Sprite component material binding (new, optional):
+
+- `Components.StaticSprite.material` (string material id)
+- `Components.AnimatedSprite.material` (string material id)
+
+Current fallback behavior:
+
+- if material id is missing or unknown, sprite still renders through the legacy path and logs a warning once.
+
 Unknown component tables are ignored unless they map to implemented handlers.
 
 ## 7) Animation files (`*.anim.conf`) for `AnimatedSprite`
@@ -345,3 +354,27 @@ Validation rules currently enforced:
 - unsupported blend/cull/uniform type values fail validation
 
 If the shader directory is missing, runtime continues with an empty shader registry for backward compatibility.
+
+## 13) Material descriptor files (`materials/*.mat.conf`)
+
+Material descriptors are validated at startup and by `--validate-config`.
+
+Required table and keys:
+
+- `[Material]`
+  - `id` (string)
+  - `shader` (string, must match an existing shader id)
+
+Optional keys/tables:
+
+- `schema` (int > 0)
+- `[Material.Textures]`
+  - arbitrary slot keys mapped to texture paths
+
+Validation rules currently enforced:
+
+- material ids must be unique across all descriptor files
+- `Material.shader` must reference a loaded shader descriptor id
+- texture slot values must be non-empty strings
+
+If the material directory is missing, runtime continues with an empty material registry for backward compatibility.

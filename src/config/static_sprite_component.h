@@ -77,6 +77,7 @@ typedef struct {
 typedef struct {
     char anim_path[4096];
     char resolved_anim_path[4096];
+    char material_id[64];
     Actor *actor;
     Vector2 position;
     SpriteAnchor anchor;
@@ -107,12 +108,15 @@ typedef struct {
     ActorVector3 previous_actor_position;
     boolean has_previous_actor_position;
     boolean valid;
+    boolean material_checked;
+    boolean material_resolved;
     Heap heap;
 } AnimatedSpriteState;
 
 typedef struct {
     char texture_path[4096];
     char resolved_texture_path[4096];
+    char material_id[64];
     Actor *actor;
     Vector2 position;
     SpriteAnchor anchor;
@@ -122,6 +126,8 @@ typedef struct {
     Texture2D texture;
     boolean loaded;
     boolean attempted_load;
+    boolean material_checked;
+    boolean material_resolved;
     Heap heap;
 } StaticSpriteState;
 

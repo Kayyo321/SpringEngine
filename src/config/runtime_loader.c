@@ -1342,9 +1342,44 @@ static void rigidbody_component_resolve_collisions(void) {
     }
 }
 
+static void validate_sprite_material_reference(
+    const char *component_name,
+    const Actor *actor,
+    const char *material_id,
+    boolean *in_out_checked,
+    boolean *in_out_resolved) {
+    if (!material_id || material_id[0] == '\0' || !in_out_checked || !in_out_resolved)
+        return;
+
+    if (*in_out_checked)
+        return;
+
+    *in_out_checked = True;
+    *in_out_resolved = False;
+
+    const MaterialDescriptor *material = material_library_find_by_id(&runtime_state.material_library, material_id);
+    if (material) {
+        *in_out_resolved = True;
+        return;
+    }
+
+    log_warn(
+        "%s on actor '%s' references unknown material '%s'; falling back to legacy sprite draw",
+        component_name ? component_name : "Sprite",
+        (actor && actor->id) ? actor->id : "<unknown>",
+        material_id);
+}
+
 static void static_sprite_component_draw(StaticSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor) {
     if (!state)
         return;
+
+    validate_sprite_material_reference(
+        "StaticSprite",
+        state->actor,
+        state->material_id,
+        &state->material_checked,
+        &state->material_resolved);
 
     if (!state->loaded) {
         if (state->attempted_load)
@@ -2065,6 +2100,13 @@ static void animated_sprite_component_update(AnimatedSpriteState *state, float d
 static void animated_sprite_component_draw(AnimatedSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor) {
     if (!state || !state->valid)
         return;
+
+    validate_sprite_material_reference(
+        "AnimatedSprite",
+        state->actor,
+        state->material_id,
+        &state->material_checked,
+        &state->material_resolved);
 
     const AnimatedSpriteStateDef *state_definition = animated_sprite_current_state(state);
     const AnimatedSpriteFrame *frame = animated_sprite_current_frame(state);
@@ -4217,6 +4259,15 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
             return Err;
         }
 
+        toml_datum_t animated_material = toml_get(animated_sprite_table, "material");
+        if (animated_material.type == TOML_STRING && animated_material.u.s && animated_material.u.s[0] != '\0') {
+            if (snprintf(animated_sprite_state->material_id, sizeof(animated_sprite_state->material_id), "%s", animated_material.u.s) >= (int)sizeof(animated_sprite_state->material_id)) {
+                animated_sprite_component_dispose(animated_sprite_state);
+                log_err("Animated sprite material id is too long for actor '%s'", actor_id);
+                return Err;
+            }
+        }
+
         toml_datum_t transform = toml_get(actor_table, "Transform");
         (void)read_xy_array(transform, "position", &animated_sprite_state->position);
         if (read_actor_transform_anchor(actor_table, prefab_refs, prefabs_root, &animated_sprite_state->anchor) != Ok) {
@@ -4289,6 +4340,15 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
             static_sprite_component_dispose(sprite_state);
             log_err("Static sprite texture path is too long for actor '%s'", actor_id);
             return Err;
+        }
+
+        toml_datum_t static_material = toml_get(static_sprite_table, "material");
+        if (static_material.type == TOML_STRING && static_material.u.s && static_material.u.s[0] != '\0') {
+            if (snprintf(sprite_state->material_id, sizeof(sprite_state->material_id), "%s", static_material.u.s) >= (int)sizeof(sprite_state->material_id)) {
+                static_sprite_component_dispose(sprite_state);
+                log_err("Static sprite material id is too long for actor '%s'", actor_id);
+                return Err;
+            }
         }
 
         toml_datum_t transform = toml_get(actor_table, "Transform");
@@ -4795,6 +4855,7 @@ result run_project_runtime(const char *project_path) {
     lighting_scene_selection_reset(&runtime_state.lighting_selection);
     shader_global_config_reset(&runtime_state.shader_global_config);
     shader_library_reset(&runtime_state.shader_library);
+    material_library_reset(&runtime_state.material_library);
 
     if (cache_autoload_actor_ids(project_toml.toptab) != Ok)
         goto fail;
@@ -4806,6 +4867,9 @@ result run_project_runtime(const char *project_path) {
         goto fail;
 
     if (shader_library_load(&runtime_state.shader_global_config, &runtime_state.shader_library) != Ok)
+        goto fail;
+
+    if (material_library_load(&runtime_state.shader_global_config, &runtime_state.shader_library, &runtime_state.material_library) != Ok)
         goto fail;
 
     runtime_state.dj_enabled = contains_autoload_actor_id("global_audio");
@@ -4867,6 +4931,7 @@ result run_project_runtime(const char *project_path) {
     lighting_scene_selection_reset(&runtime_state.lighting_selection);
     shader_global_config_reset(&runtime_state.shader_global_config);
     shader_library_reset(&runtime_state.shader_library);
+    material_library_reset(&runtime_state.material_library);
 
     if (project_ok)
         toml_free(project_toml);
@@ -4908,6 +4973,7 @@ fail:
         lighting_scene_selection_reset(&runtime_state.lighting_selection);
         shader_global_config_reset(&runtime_state.shader_global_config);
         shader_library_reset(&runtime_state.shader_library);
+        material_library_reset(&runtime_state.material_library);
     }
 
     if (project_ok)
@@ -4922,9 +4988,11 @@ result validate_project_configs(const char *project_path) {
     boolean project_ok = False;
     Heap lighting_heap = NullHeap;
     Heap shader_library_heap = NullHeap;
+    Heap material_library_heap = NullHeap;
 
     LightingGlobalConfig *lighting_global_config = Null;
     ShaderLibrary *shader_library = Null;
+    MaterialLibrary *material_library = Null;
 
     if (!project_path || project_path[0] == '\0') {
         log_err("Project path is missing");
@@ -5003,10 +5071,21 @@ result validate_project_configs(const char *project_path) {
     if (shader_library_load(&shader_global_config, shader_library) != Ok)
         goto fail;
 
+    material_library_heap = allocate(1, sizeof(MaterialLibrary));
+    material_library = (MaterialLibrary *)material_library_heap.pointer;
+    if (!material_library)
+        goto fail;
+    memset(material_library, 0, sizeof(*material_library));
+
+    if (material_library_load(&shader_global_config, shader_library, material_library) != Ok)
+        goto fail;
+
     if (lighting_heap.pointer)
         deallocate(lighting_heap);
     if (shader_library_heap.pointer)
         deallocate(shader_library_heap);
+    if (material_library_heap.pointer)
+        deallocate(material_library_heap);
 
     if (project_ok)
         toml_free(project_toml);
@@ -5020,6 +5099,8 @@ fail:
         deallocate(lighting_heap);
     if (shader_library_heap.pointer)
         deallocate(shader_library_heap);
+    if (material_library_heap.pointer)
+        deallocate(material_library_heap);
     if (project_ok)
         toml_free(project_toml);
     vfs_unmount();
