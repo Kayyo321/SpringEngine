@@ -1212,7 +1212,7 @@ void script_runtime_begin_frame(ScriptRuntime *runtime) {
     runtime->time_delta_time = runtime_time_apply_rules(runtime, raw_delta_time);
     runtime->time_unscaled_elapsed_time += runtime->time_raw_delta_time;
     runtime->time_elapsed_time += runtime->time_delta_time;
-    runtime->time_frame_count++;
+    ++runtime->time_frame_count;
     script_async_tick(runtime);
 }
 
