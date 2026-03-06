@@ -378,3 +378,35 @@ Validation rules currently enforced:
 - texture slot values must be non-empty strings
 
 If the material directory is missing, runtime continues with an empty material registry for backward compatibility.
+
+## 14) Full-screen post shaders (`*.postfx.conf`)
+
+Runtime supports project-level full-screen shader passes loaded from:
+
+- `ShaderGlobal.Defaults.post_stack` (resolved under `ShaderGlobal.Paths.material_dir`)
+
+Current format:
+
+```toml
+[PostFX]
+enabled = true
+
+[[PostFX.Passes]]
+shader = "post_edge_pixel_vignette"
+pixel_size = 5.0
+vignette_inner = 0.58
+vignette_outer = 1.0
+edge_glow = 0.42
+pulse_speed = 1.45
+```
+
+Rules enforced:
+
+- `PostFX` table is required when file exists
+- at least one `[[PostFX.Passes]]` entry is required when enabled
+- each pass must provide `shader` id referencing a loaded shader descriptor
+
+Current runtime behavior:
+
+- world rendering is drawn to an offscreen target, full-screen passes are applied in order, then UI is drawn on top
+- if post stack file is missing, full-screen shaders are disabled and runtime continues normally

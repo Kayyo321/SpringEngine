@@ -25,6 +25,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+typedef struct SharedShaderEntry SharedShaderEntry;
+
 static result join_path(const char *base, const char *path, char *out_path, usize out_size);
 static result parent_directory(const char *path, char *out_dir, usize out_size);
 static result parse_toml_file(const char *path, toml_result_t *out_parsed);
@@ -58,7 +60,13 @@ static result texture_cache_acquire(const char *resolved_texture_path, Texture2D
 static void texture_cache_release(const char *resolved_texture_path, Texture2D texture);
 static void texture_cache_reset(void);
 static void shader_cache_reset(void);
+static result shader_cache_acquire_by_id(const char *shader_id, SharedShaderEntry **out_entry);
+static result postfx_load_stack_config(const ShaderGlobalConfig *global_config, const ShaderLibrary *shader_library);
+static void postfx_reset(void);
+static result postfx_ensure_targets(int width, int height);
+static void draw_texture_fullscreen(Texture2D texture, int width, int height);
 static result shader_cache_acquire_for_material(const char *material_id, Shader **out_shader, int *out_time_loc, int *out_speed_loc, int *out_freq_loc, int *out_strength_loc);
+static boolean toml_number_to_float(toml_datum_t value, float *out_number);
 static unsigned char scale_color_channel(unsigned char channel, float multiplier);
 static Color apply_global_light_to_color(Color color);
 static void animated_sprite_component_update(AnimatedSpriteState *state, float delta_time);
@@ -83,6 +91,7 @@ static const float RuntimePhysicsGravityY = 240.0f;
 
 enum {
     RuntimeMaxActorScriptComponents = 16,
+    RuntimeMaxPostFxPasses = 4,
 };
 
 typedef struct {
@@ -91,16 +100,38 @@ typedef struct {
     usize ref_count;
 } SharedTextureEntry;
 
-typedef struct {
+typedef struct SharedShaderEntry {
     char shader_id[ShaderRegistryMaxIdLength];
     Shader shader;
     int time_location;
+    int screen_size_location;
+    int pixel_size_location;
+    int vignette_inner_location;
+    int vignette_outer_location;
+    int edge_glow_location;
+    int pulse_speed_location;
     int distort_speed_location;
     int distort_frequency_location;
     int distort_strength_location;
     boolean loaded;
     boolean attempted_load;
 } SharedShaderEntry;
+
+typedef struct {
+    char shader_id[ShaderRegistryMaxIdLength];
+    float pixel_size;
+    float vignette_inner;
+    float vignette_outer;
+    float edge_glow;
+    float pulse_speed;
+} PostFxPassConfig;
+
+typedef struct {
+    boolean enabled;
+    usize pass_count;
+    char source_path[PATH_MAX];
+    PostFxPassConfig passes[RuntimeMaxPostFxPasses];
+} PostFxStackConfig;
 
 static Heap shared_texture_entries_heap = {0};
 static SharedTextureEntry *shared_texture_entries = 0;
@@ -111,6 +142,11 @@ static Heap shared_shader_entries_heap = {0};
 static SharedShaderEntry *shared_shader_entries = 0;
 static usize shared_shader_entry_count = 0;
 static usize shared_shader_entry_capacity = 0;
+
+static PostFxStackConfig runtime_postfx_stack = {0};
+static RenderTexture2D runtime_postfx_scene_target = {0};
+static RenderTexture2D runtime_postfx_ping_target = {0};
+static boolean runtime_postfx_targets_loaded = False;
 
 static result ensure_shared_texture_capacity(usize required_capacity) {
     if (required_capacity <= shared_texture_entry_capacity)
@@ -288,6 +324,19 @@ static const ShaderDescriptor *find_shader_descriptor_by_id(const char *shader_i
     return Null;
 }
 
+static const ShaderDescriptor *find_shader_descriptor_by_id_in_library(const ShaderLibrary *library, const char *shader_id) {
+    if (!library || !shader_id || shader_id[0] == '\0')
+        return Null;
+
+    for (usize index = 0; index < library->shader_count; ++index) {
+        const ShaderDescriptor *descriptor = &library->shaders[index];
+        if (strcmp(descriptor->id, shader_id) == 0)
+            return descriptor;
+    }
+
+    return Null;
+}
+
 static result shader_cache_acquire_for_material(const char *material_id, Shader **out_shader, int *out_time_loc, int *out_speed_loc, int *out_freq_loc, int *out_strength_loc) {
     if (!material_id || material_id[0] == '\0' || !out_shader)
         return Err;
@@ -310,21 +359,35 @@ static result shader_cache_acquire_for_material(const char *material_id, Shader 
     if (!shader_id || shader_id[0] == '\0')
         return Err;
 
+    SharedShaderEntry *entry = Null;
+    if (shader_cache_acquire_by_id(shader_id, &entry) != Ok || !entry)
+        return Err;
+
+    *out_shader = &entry->shader;
+    if (out_time_loc)
+        *out_time_loc = entry->time_location;
+    if (out_speed_loc)
+        *out_speed_loc = entry->distort_speed_location;
+    if (out_freq_loc)
+        *out_freq_loc = entry->distort_frequency_location;
+    if (out_strength_loc)
+        *out_strength_loc = entry->distort_strength_location;
+
+    return Ok;
+}
+
+static result shader_cache_acquire_by_id(const char *shader_id, SharedShaderEntry **out_entry) {
+    if (!shader_id || shader_id[0] == '\0' || !out_entry)
+        return Err;
+
+    *out_entry = Null;
+
     const int cached_index = find_shared_shader_index(shader_id);
     if (cached_index >= 0) {
         SharedShaderEntry *entry = &shared_shader_entries[cached_index];
         if (!entry->loaded)
             return Err;
-
-        *out_shader = &entry->shader;
-        if (out_time_loc)
-            *out_time_loc = entry->time_location;
-        if (out_speed_loc)
-            *out_speed_loc = entry->distort_speed_location;
-        if (out_freq_loc)
-            *out_freq_loc = entry->distort_frequency_location;
-        if (out_strength_loc)
-            *out_strength_loc = entry->distort_strength_location;
+        *out_entry = entry;
         return Ok;
     }
 
@@ -362,22 +425,212 @@ static result shader_cache_acquire_for_material(const char *material_id, Shader 
     }
 
     entry->time_location = GetShaderLocation(entry->shader, "u_time");
+    entry->screen_size_location = GetShaderLocation(entry->shader, "u_screen_size");
+    entry->pixel_size_location = GetShaderLocation(entry->shader, "u_pixel_size");
+    entry->vignette_inner_location = GetShaderLocation(entry->shader, "u_vignette_inner");
+    entry->vignette_outer_location = GetShaderLocation(entry->shader, "u_vignette_outer");
+    entry->edge_glow_location = GetShaderLocation(entry->shader, "u_edge_glow");
+    entry->pulse_speed_location = GetShaderLocation(entry->shader, "u_pulse_speed");
     entry->distort_speed_location = GetShaderLocation(entry->shader, "u_distort_speed");
     entry->distort_frequency_location = GetShaderLocation(entry->shader, "u_distort_frequency");
     entry->distort_strength_location = GetShaderLocation(entry->shader, "u_distort_strength");
     entry->loaded = True;
 
-    *out_shader = &entry->shader;
-    if (out_time_loc)
-        *out_time_loc = entry->time_location;
-    if (out_speed_loc)
-        *out_speed_loc = entry->distort_speed_location;
-    if (out_freq_loc)
-        *out_freq_loc = entry->distort_frequency_location;
-    if (out_strength_loc)
-        *out_strength_loc = entry->distort_strength_location;
-
+    *out_entry = entry;
     return Ok;
+}
+
+static result postfx_load_stack_config(const ShaderGlobalConfig *global_config, const ShaderLibrary *shader_library) {
+    if (!global_config || !shader_library)
+        return Err;
+
+    (void)shader_library;
+
+    memset(&runtime_postfx_stack, 0, sizeof(runtime_postfx_stack));
+
+    if (global_config->default_post_stack[0] == '\0')
+        return Ok;
+
+    char postfx_path[PATH_MAX] = {0};
+    if (join_path(global_config->material_root, global_config->default_post_stack, postfx_path, sizeof(postfx_path)) != Ok) {
+        log_err("ShaderGlobal.Defaults.post_stack path is too long: '%s'", global_config->default_post_stack);
+        return Err;
+    }
+
+    if (vfs_file_exists(postfx_path) != True) {
+        log_msg("PostFX stack '%s' not found; fullscreen shaders disabled", postfx_path);
+        return Ok;
+    }
+
+    toml_result_t parsed = {0};
+    if (vfs_parse_toml_file(postfx_path, &parsed) != Ok) {
+        log_err("Failed to parse postfx stack '%s'", postfx_path);
+        return Err;
+    }
+
+    toml_datum_t postfx = toml_get(parsed.toptab, "PostFX");
+    if (postfx.type != TOML_TABLE) {
+        log_err("PostFX stack '%s' is missing [PostFX] table", postfx_path);
+        toml_free(parsed);
+        return Err;
+    }
+
+    if (snprintf(runtime_postfx_stack.source_path, sizeof(runtime_postfx_stack.source_path), "%s", postfx_path) >= (int)sizeof(runtime_postfx_stack.source_path)) {
+        toml_free(parsed);
+        return Err;
+    }
+
+    runtime_postfx_stack.enabled = True;
+    toml_datum_t enabled = toml_get(postfx, "enabled");
+    if (enabled.type == TOML_BOOLEAN)
+        runtime_postfx_stack.enabled = enabled.u.boolean ? True : False;
+
+    if (!runtime_postfx_stack.enabled) {
+        toml_free(parsed);
+        return Ok;
+    }
+
+    toml_datum_t passes = toml_get(postfx, "Passes");
+    if (passes.type != TOML_ARRAY || passes.u.arr.size <= 0) {
+        log_err("PostFX stack '%s' requires [[PostFX.Passes]] entries", postfx_path);
+        toml_free(parsed);
+        return Err;
+    }
+
+    for (int index = 0; index < passes.u.arr.size; ++index) {
+        if (runtime_postfx_stack.pass_count >= RuntimeMaxPostFxPasses) {
+            log_err("PostFX stack '%s' exceeds max passes (%d)", postfx_path, RuntimeMaxPostFxPasses);
+            toml_free(parsed);
+            return Err;
+        }
+
+        toml_datum_t pass = passes.u.arr.elem[index];
+        if (pass.type != TOML_TABLE) {
+            log_err("PostFX.Passes[%d] must be a table in '%s'", index, postfx_path);
+            toml_free(parsed);
+            return Err;
+        }
+
+        toml_datum_t shader = toml_get(pass, "shader");
+        if (shader.type != TOML_STRING || !shader.u.s || shader.u.s[0] == '\0') {
+            log_err("PostFX.Passes[%d].shader is required in '%s'", index, postfx_path);
+            toml_free(parsed);
+            return Err;
+        }
+
+        if (!find_shader_descriptor_by_id_in_library(shader_library, shader.u.s)) {
+            log_err("PostFX pass references unknown shader '%s' in '%s'", shader.u.s, postfx_path);
+            toml_free(parsed);
+            return Err;
+        }
+
+        PostFxPassConfig *out_pass = &runtime_postfx_stack.passes[runtime_postfx_stack.pass_count];
+        memset(out_pass, 0, sizeof(*out_pass));
+        if (snprintf(out_pass->shader_id, sizeof(out_pass->shader_id), "%s", shader.u.s) >= (int)sizeof(out_pass->shader_id)) {
+            toml_free(parsed);
+            return Err;
+        }
+
+        out_pass->pixel_size = 4.0f;
+        out_pass->vignette_inner = 0.55f;
+        out_pass->vignette_outer = 0.98f;
+        out_pass->edge_glow = 0.35f;
+        out_pass->pulse_speed = 1.3f;
+
+        float numeric_value = 0.0f;
+        toml_datum_t pixel_size = toml_get(pass, "pixel_size");
+        if (toml_number_to_float(pixel_size, &numeric_value) && numeric_value >= 1.0f)
+            out_pass->pixel_size = numeric_value;
+
+        toml_datum_t vignette_inner = toml_get(pass, "vignette_inner");
+        if (toml_number_to_float(vignette_inner, &numeric_value) && numeric_value >= 0.0f)
+            out_pass->vignette_inner = numeric_value;
+
+        toml_datum_t vignette_outer = toml_get(pass, "vignette_outer");
+        if (toml_number_to_float(vignette_outer, &numeric_value) && numeric_value > 0.0f)
+            out_pass->vignette_outer = numeric_value;
+
+        toml_datum_t edge_glow = toml_get(pass, "edge_glow");
+        if (toml_number_to_float(edge_glow, &numeric_value) && numeric_value >= 0.0f)
+            out_pass->edge_glow = numeric_value;
+
+        toml_datum_t pulse_speed = toml_get(pass, "pulse_speed");
+        if (toml_number_to_float(pulse_speed, &numeric_value) && numeric_value >= 0.0f)
+            out_pass->pulse_speed = numeric_value;
+
+        runtime_postfx_stack.pass_count++;
+    }
+
+    toml_free(parsed);
+    log_msg("Loaded PostFX stack '%s' with %lu pass(es)", postfx_path, runtime_postfx_stack.pass_count);
+    return Ok;
+}
+
+static void postfx_reset(void) {
+    if (runtime_postfx_targets_loaded) {
+        if (runtime_postfx_scene_target.id != 0)
+            UnloadRenderTexture(runtime_postfx_scene_target);
+        if (runtime_postfx_ping_target.id != 0)
+            UnloadRenderTexture(runtime_postfx_ping_target);
+    }
+
+    runtime_postfx_scene_target = (RenderTexture2D){0};
+    runtime_postfx_ping_target = (RenderTexture2D){0};
+    runtime_postfx_targets_loaded = False;
+    memset(&runtime_postfx_stack, 0, sizeof(runtime_postfx_stack));
+}
+
+static result postfx_ensure_targets(int width, int height) {
+    if (width <= 0 || height <= 0)
+        return Err;
+
+    if (runtime_postfx_targets_loaded &&
+        runtime_postfx_scene_target.texture.id != 0 &&
+        runtime_postfx_scene_target.texture.width == width &&
+        runtime_postfx_scene_target.texture.height == height &&
+        runtime_postfx_ping_target.texture.id != 0 &&
+        runtime_postfx_ping_target.texture.width == width &&
+        runtime_postfx_ping_target.texture.height == height) {
+        return Ok;
+    }
+
+    if (runtime_postfx_targets_loaded) {
+        if (runtime_postfx_scene_target.id != 0)
+            UnloadRenderTexture(runtime_postfx_scene_target);
+        if (runtime_postfx_ping_target.id != 0)
+            UnloadRenderTexture(runtime_postfx_ping_target);
+    }
+
+    runtime_postfx_scene_target = LoadRenderTexture(width, height);
+    runtime_postfx_ping_target = LoadRenderTexture(width, height);
+    if (runtime_postfx_scene_target.id == 0 || runtime_postfx_ping_target.id == 0) {
+        log_err("Failed to allocate postfx render targets %dx%d", width, height);
+        runtime_postfx_scene_target = (RenderTexture2D){0};
+        runtime_postfx_ping_target = (RenderTexture2D){0};
+        runtime_postfx_targets_loaded = False;
+        return Err;
+    }
+
+    runtime_postfx_targets_loaded = True;
+    return Ok;
+}
+
+static void draw_texture_fullscreen(Texture2D texture, int width, int height) {
+    Rectangle source = {
+        .x = 0.0f,
+        .y = 0.0f,
+        .width = (float)texture.width,
+        .height = -(float)texture.height,
+    };
+
+    Rectangle destination = {
+        .x = 0.0f,
+        .y = 0.0f,
+        .width = (float)width,
+        .height = (float)height,
+    };
+
+    DrawTexturePro(texture, source, destination, (Vector2){0.0f, 0.0f}, 0.0f, WHITE);
 }
 
 static void shader_cache_reset(void) {
@@ -3417,6 +3670,17 @@ static void frame_update(void) {
         draw_order[insertion_index] = candidate;
     }
 
+    const int screen_width = GetScreenWidth();
+    const int screen_height = GetScreenHeight();
+    boolean use_postfx = runtime_postfx_stack.enabled && runtime_postfx_stack.pass_count > 0;
+    if (use_postfx && postfx_ensure_targets(screen_width, screen_height) != Ok)
+        use_postfx = False;
+
+    if (use_postfx) {
+        BeginTextureMode(runtime_postfx_scene_target);
+        ClearBackground(BLANK);
+    }
+
     for (usize index = 0; index < draw_order_index; ++index) {
         Actor *actor = draw_order[index];
         for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
@@ -3441,6 +3705,90 @@ static void frame_update(void) {
     if (runtime_state.debug_show_light_gizmos)
         debug_draw_light_gizmos();
 #endif
+
+    if (use_postfx)
+        EndTextureMode();
+
+    if (use_postfx) {
+        RenderTexture2D *input_target = &runtime_postfx_scene_target;
+
+        for (usize pass_index = 0; pass_index < runtime_postfx_stack.pass_count; ++pass_index) {
+            const PostFxPassConfig *pass = &runtime_postfx_stack.passes[pass_index];
+            const boolean last_pass = (pass_index + 1) >= runtime_postfx_stack.pass_count;
+
+            SharedShaderEntry *shader_entry = Null;
+            if (shader_cache_acquire_by_id(pass->shader_id, &shader_entry) != Ok || !shader_entry) {
+                if (last_pass) {
+                    draw_texture_fullscreen(input_target->texture, screen_width, screen_height);
+                } else {
+                    RenderTexture2D *output_target = (input_target == &runtime_postfx_scene_target)
+                        ? &runtime_postfx_ping_target
+                        : &runtime_postfx_scene_target;
+
+                    BeginTextureMode(*output_target);
+                    ClearBackground(BLANK);
+                    draw_texture_fullscreen(input_target->texture, screen_width, screen_height);
+                    EndTextureMode();
+                    input_target = output_target;
+                }
+
+                continue;
+            }
+
+            const float runtime_time = (float)GetTime();
+            const float screen_size[2] = {(float)screen_width, (float)screen_height};
+
+            if (last_pass) {
+                if (shader_entry->time_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->time_location, &runtime_time, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->screen_size_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->screen_size_location, screen_size, SHADER_UNIFORM_VEC2);
+                if (shader_entry->pixel_size_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->pixel_size_location, &pass->pixel_size, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->vignette_inner_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->vignette_inner_location, &pass->vignette_inner, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->vignette_outer_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->vignette_outer_location, &pass->vignette_outer, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->edge_glow_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->edge_glow_location, &pass->edge_glow, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->pulse_speed_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->pulse_speed_location, &pass->pulse_speed, SHADER_UNIFORM_FLOAT);
+
+                BeginShaderMode(shader_entry->shader);
+                draw_texture_fullscreen(input_target->texture, screen_width, screen_height);
+                EndShaderMode();
+            } else {
+                RenderTexture2D *output_target = (input_target == &runtime_postfx_scene_target)
+                    ? &runtime_postfx_ping_target
+                    : &runtime_postfx_scene_target;
+
+                BeginTextureMode(*output_target);
+                ClearBackground(BLANK);
+
+                if (shader_entry->time_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->time_location, &runtime_time, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->screen_size_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->screen_size_location, screen_size, SHADER_UNIFORM_VEC2);
+                if (shader_entry->pixel_size_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->pixel_size_location, &pass->pixel_size, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->vignette_inner_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->vignette_inner_location, &pass->vignette_inner, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->vignette_outer_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->vignette_outer_location, &pass->vignette_outer, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->edge_glow_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->edge_glow_location, &pass->edge_glow, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->pulse_speed_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->pulse_speed_location, &pass->pulse_speed, SHADER_UNIFORM_FLOAT);
+
+                BeginShaderMode(shader_entry->shader);
+                draw_texture_fullscreen(input_target->texture, screen_width, screen_height);
+                EndShaderMode();
+
+                EndTextureMode();
+                input_target = output_target;
+            }
+        }
+    }
 
     if (runtime_state.ui_runtime)
         ui_runtime_draw(runtime_state.ui_runtime);
@@ -5126,6 +5474,7 @@ result run_project_runtime(const char *project_path) {
     shader_global_config_reset(&runtime_state.shader_global_config);
     shader_library_reset(&runtime_state.shader_library);
     material_library_reset(&runtime_state.material_library);
+    postfx_reset();
 
     if (cache_autoload_actor_ids(project_toml.toptab) != Ok)
         goto fail;
@@ -5140,6 +5489,9 @@ result run_project_runtime(const char *project_path) {
         goto fail;
 
     if (material_library_load(&runtime_state.shader_global_config, &runtime_state.shader_library, &runtime_state.material_library) != Ok)
+        goto fail;
+
+    if (postfx_load_stack_config(&runtime_state.shader_global_config, &runtime_state.shader_library) != Ok)
         goto fail;
 
     runtime_state.dj_enabled = contains_autoload_actor_id("global_audio");
@@ -5203,6 +5555,7 @@ result run_project_runtime(const char *project_path) {
     shader_global_config_reset(&runtime_state.shader_global_config);
     shader_library_reset(&runtime_state.shader_library);
     material_library_reset(&runtime_state.material_library);
+    postfx_reset();
 
     if (project_ok)
         toml_free(project_toml);
@@ -5246,6 +5599,7 @@ fail:
         shader_global_config_reset(&runtime_state.shader_global_config);
         shader_library_reset(&runtime_state.shader_library);
         material_library_reset(&runtime_state.material_library);
+        postfx_reset();
     }
 
     if (project_ok)
@@ -5352,12 +5706,16 @@ result validate_project_configs(const char *project_path) {
     if (material_library_load(&shader_global_config, shader_library, material_library) != Ok)
         goto fail;
 
+    if (postfx_load_stack_config(&shader_global_config, shader_library) != Ok)
+        goto fail;
+
     if (lighting_heap.pointer)
         deallocate(lighting_heap);
     if (shader_library_heap.pointer)
         deallocate(shader_library_heap);
     if (material_library_heap.pointer)
         deallocate(material_library_heap);
+    postfx_reset();
 
     if (project_ok)
         toml_free(project_toml);
@@ -5373,6 +5731,7 @@ fail:
         deallocate(shader_library_heap);
     if (material_library_heap.pointer)
         deallocate(material_library_heap);
+    postfx_reset();
     if (project_ok)
         toml_free(project_toml);
     vfs_unmount();
