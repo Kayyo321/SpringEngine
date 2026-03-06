@@ -1205,6 +1205,9 @@ void script_runtime_begin_frame(ScriptRuntime *runtime) {
     if (raw_delta_time < 0.0f)
         raw_delta_time = 0.0f;
 
+    if (IsWindowResized())
+        raw_delta_time = 1.0f / 60.0f;
+
     runtime->time_raw_delta_time = raw_delta_time;
     runtime->time_delta_time = runtime_time_apply_rules(runtime, raw_delta_time);
     runtime->time_unscaled_elapsed_time += runtime->time_raw_delta_time;
