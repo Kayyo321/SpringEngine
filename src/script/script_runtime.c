@@ -1077,6 +1077,22 @@ static int lua_script_material_set(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_script_material_get(lua_State *lua_state) {
+    const char *material_alias = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int property_index = using_colon_call ? 2 : 1;
+    const char *property_name = luaL_checkstring(lua_state, property_index);
+
+    float value = 0.0f;
+    if (runtime_material_get_property(material_alias ? material_alias : "", property_name, &value) != Ok) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_pushnumber(lua_state, value);
+    return 1;
+}
+
 static int lua_script_self_get_material_by_name(lua_State *lua_state) {
     const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
     const int alias_index = using_colon_call ? 2 : 1;
@@ -1091,6 +1107,9 @@ static int lua_script_self_get_material_by_name(lua_State *lua_state) {
     lua_pushstring(lua_state, material_alias);
     lua_pushcclosure(lua_state, lua_script_material_set, 1);
     lua_setfield(lua_state, -2, "set");
+    lua_pushstring(lua_state, material_alias);
+    lua_pushcclosure(lua_state, lua_script_material_get, 1);
+    lua_setfield(lua_state, -2, "get");
     return 1;
 }
 

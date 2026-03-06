@@ -26,6 +26,7 @@
 #include <unistd.h>
 
 typedef struct SharedShaderEntry SharedShaderEntry;
+typedef struct PostFxPassConfig PostFxPassConfig;
 
 static result join_path(const char *base, const char *path, char *out_path, usize out_size);
 static result parent_directory(const char *path, char *out_dir, usize out_size);
@@ -72,6 +73,7 @@ static int find_material_override_index(const char *material_alias, const char *
 static boolean material_override_get_float(const char *material_alias, const char *property_name, float *out_value);
 static void material_override_reset(void);
 static float normalize_material_property_value(const char *property_name, float value);
+static boolean postfx_pass_get_default_property(const PostFxPassConfig *pass, const char *property_name, float *out_value);
 static boolean toml_number_to_float(toml_datum_t value, float *out_number);
 static unsigned char scale_color_channel(unsigned char channel, float multiplier);
 static Color apply_global_light_to_color(Color color);
@@ -129,7 +131,7 @@ typedef struct SharedShaderEntry {
     boolean attempted_load;
 } SharedShaderEntry;
 
-typedef struct {
+struct PostFxPassConfig {
     char shader_id[ShaderRegistryMaxIdLength];
     char material_alias[ShaderRegistryMaxIdLength];
     float pixel_size;
@@ -138,7 +140,7 @@ typedef struct {
     float edge_glow;
     float pulse_speed;
     float intensity;
-} PostFxPassConfig;
+};
 
 typedef struct {
     boolean enabled;
@@ -544,6 +546,43 @@ static float normalize_material_property_value(const char *property_name, float 
         return 1.0f;
 
     return (100.0f - health) / 85.0f;
+}
+
+static boolean postfx_pass_get_default_property(const PostFxPassConfig *pass, const char *property_name, float *out_value) {
+    if (!pass || !property_name || property_name[0] == '\0' || !out_value)
+        return False;
+
+    if (strcmp(property_name, "pixel_size") == 0) {
+        *out_value = pass->pixel_size;
+        return True;
+    }
+
+    if (strcmp(property_name, "vignette_inner") == 0) {
+        *out_value = pass->vignette_inner;
+        return True;
+    }
+
+    if (strcmp(property_name, "vignette_outer") == 0) {
+        *out_value = pass->vignette_outer;
+        return True;
+    }
+
+    if (strcmp(property_name, "edge_glow") == 0) {
+        *out_value = pass->edge_glow;
+        return True;
+    }
+
+    if (strcmp(property_name, "pulse_speed") == 0) {
+        *out_value = pass->pulse_speed;
+        return True;
+    }
+
+    if (strcmp(property_name, "intensity") == 0) {
+        *out_value = pass->intensity;
+        return True;
+    }
+
+    return False;
 }
 
 static result postfx_load_stack_config(const ShaderGlobalConfig *global_config, const ShaderLibrary *shader_library) {
@@ -5959,4 +5998,26 @@ result runtime_material_set_property(const char *material_alias, const char *pro
 
     entry->value = normalized_value;
     return Ok;
+}
+
+result runtime_material_get_property(const char *material_alias, const char *property_name, float *out_value) {
+    RuntimeGuardActiveErr();
+
+    if (!material_alias || material_alias[0] == '\0' || !property_name || property_name[0] == '\0' || !out_value)
+        return Err;
+
+    if (!material_alias_exists_internal(material_alias))
+        return Err;
+
+    if (material_override_get_float(material_alias, property_name, out_value))
+        return Ok;
+
+    const int pass_index = find_postfx_pass_index_by_alias(material_alias);
+    if (pass_index >= 0) {
+        const PostFxPassConfig *pass = &runtime_postfx_stack.passes[pass_index];
+        if (postfx_pass_get_default_property(pass, property_name, out_value))
+            return Ok;
+    }
+
+    return Err;
 }

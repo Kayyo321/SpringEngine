@@ -24,5 +24,6 @@ result runtime_ui_get_document_count(usize *out_count);
 const char *runtime_ui_get_document_id_at(usize index);
 boolean runtime_material_alias_exists(const char *material_alias);
 result runtime_material_set_property(const char *material_alias, const char *property_name, float value);
+result runtime_material_get_property(const char *material_alias, const char *property_name, float *out_value);
 
 #endif // RUNTIME_LOADER_H

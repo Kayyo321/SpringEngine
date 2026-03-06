@@ -50,6 +50,7 @@ Each script table gets:
 `get_material_by_name` returns a small material handle table with:
 
 - `set(property_name, value)`
+- `get(property_name)`
 
 Example:
 
