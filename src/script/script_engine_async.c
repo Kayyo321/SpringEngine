@@ -2,10 +2,6 @@
 
 static const char *AsyncThreadsRegistryKey = "__springengine_async_threads";
 
-/* =========================================================================
-   Thread method forward declarations
-   ========================================================================= */
-
 static int lua_async_thread_resume(lua_State *L);
 static int lua_async_thread_cancel(lua_State *L);
 static int lua_async_thread_is_alive(lua_State *L);
@@ -21,50 +17,32 @@ static const luaL_Reg thread_methods[] = {
     {NULL, NULL},
 };
 
-/* =========================================================================
-   Internal helpers
-   ========================================================================= */
-
-/* Build a thread table from the function at fn_arg (absolute stack index).
- * Leaves the new thread table at the top of the stack.
- * The coroutine is stored in tbl._co; on return co's stack contains [fn]. */
 static void async_create_thread_table(lua_State *L, int fn_arg) {
     fn_arg = lua_absindex(L, fn_arg);
     luaL_checktype(L, fn_arg, LUA_TFUNCTION);
 
-    /* Create the Lua coroutine thread */
-    lua_State *co = lua_newthread(L);   /* [..., co_val]          */
-    int co_idx    = lua_gettop(L);      /* absolute position of co_val */
+    lua_State *co = lua_newthread(L);
+    int co_idx    = lua_gettop(L);
 
-    /* Move the function onto co's stack */
-    lua_pushvalue(L, fn_arg);           /* [..., co_val, fn_copy] */
-    lua_xmove(L, co, 1);               /* co: [fn]; L: [..., co_val] */
+    lua_pushvalue(L, fn_arg);
+    lua_xmove(L, co, 1);
 
-    /* Build the thread table */
-    lua_newtable(L);                    /* [..., co_val, tbl]     */
+    lua_newtable(L);
 
-    /* tbl._co = co_val */
-    lua_pushvalue(L, co_idx);           /* [..., co_val, tbl, co_val] */
-    lua_setfield(L, -2, "_co");         /* [..., co_val, tbl]     */
+    lua_pushvalue(L, co_idx);
+    lua_setfield(L, -2, "_co");
 
-    /* tbl._cancelled = false */
     lua_pushboolean(L, 0);
     lua_setfield(L, -2, "_cancelled");
 
-    /* tbl._dead = false */
     lua_pushboolean(L, 0);
     lua_setfield(L, -2, "_dead");
 
-    /* Add resume / cancel / is_alive / is_cancelled / status methods */
     luaL_setfuncs(L, thread_methods, 0);
 
-    /* Remove co_val from under the table, leaving just [tbl] on top */
-    lua_remove(L, co_idx);              /* [..., tbl]             */
+    lua_remove(L, co_idx);
 }
 
-/* Update the wait condition stored in the thread table at tbl_idx using
- * the values that were just yielded onto co's stack (nresults of them).
- * Pops all nresults from co when done. */
 static void async_set_wait_from_yield(lua_State *L,
                                       int          tbl_idx,
                                       lua_State   *co,
@@ -77,24 +55,21 @@ static void async_set_wait_from_yield(lua_State *L,
         signal = lua_tostring(co, -nresults);
 
     if (!signal || strcmp(signal, "frame") == 0) {
-        /* Resume on the next frame */
         lua_pushliteral(L, "frame");
         lua_setfield(L, tbl_idx, "_wait_type");
         lua_pushnumber(L, (lua_Number)(runtime->time_frame_count + 1));
         lua_setfield(L, tbl_idx, "_wait_value");
 
     } else if (strcmp(signal, "frames") == 0) {
-        /* Resume after n frames */
         int n = (nresults >= 2 && lua_isnumber(co, -nresults + 1))
                     ? (int)lua_tointeger(co, -nresults + 1) : 1;
         if (n < 1) n = 1;
-        lua_pushliteral(L, "frame");  /* reuse "frame" type, just set target */
+        lua_pushliteral(L, "frame");
         lua_setfield(L, tbl_idx, "_wait_type");
         lua_pushnumber(L, (lua_Number)(runtime->time_frame_count + (lua_Number)n));
         lua_setfield(L, tbl_idx, "_wait_value");
 
     } else if (strcmp(signal, "seconds") == 0) {
-        /* Resume after t unscaled seconds */
         float t = (nresults >= 2 && lua_isnumber(co, -nresults + 1))
                       ? (float)lua_tonumber(co, -nresults + 1) : 0.0f;
         if (t < 0.0f) t = 0.0f;
@@ -104,7 +79,6 @@ static void async_set_wait_from_yield(lua_State *L,
         lua_setfield(L, tbl_idx, "_wait_value");
 
     } else {
-        /* Unknown signal — default to next frame */
         lua_pushliteral(L, "frame");
         lua_setfield(L, tbl_idx, "_wait_type");
         lua_pushnumber(L, (lua_Number)(runtime->time_frame_count + 1));
@@ -114,7 +88,6 @@ static void async_set_wait_from_yield(lua_State *L,
     lua_pop(co, nresults);
 }
 
-/* Append the thread table at tbl_idx into the auto-threads registry list. */
 static void async_register_auto_thread(lua_State *L, int tbl_idx) {
     tbl_idx = lua_absindex(L, tbl_idx);
 
@@ -131,16 +104,9 @@ static void async_register_auto_thread(lua_State *L, int tbl_idx) {
     lua_pushvalue(L, tbl_idx);
     lua_rawseti(L, list_idx, len + 1);
 
-    lua_pop(L, 1); /* pop list */
+    lua_pop(L, 1);
 }
 
-/* =========================================================================
-   Thread methods  (all take self=thread-table as arg[1])
-   ========================================================================= */
-
-/* thread:resume(...)
- * Advances the coroutine.  Returns true [+ yield values] on success,
- * or false, errmsg on failure. */
 static int lua_async_thread_resume(lua_State *L) {
     luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -173,7 +139,6 @@ static int lua_async_thread_resume(lua_State *L) {
         return 2;
     }
 
-    /* Args to forward are at positions 2..top (position 1 is self) */
     int nargs = lua_gettop(L) - 1;
 
     if (nargs > 0) {
@@ -182,7 +147,6 @@ static int lua_async_thread_resume(lua_State *L) {
             lua_pushliteral(L, "stack overflow");
             return 2;
         }
-        /* xmove pops the top nargs values from L and pushes them onto co */
         lua_xmove(L, co, nargs);
     }
 
@@ -197,14 +161,14 @@ static int lua_async_thread_resume(lua_State *L) {
             nresults = 0;
         }
         lua_pushboolean(L, 1);
-        lua_insert(L, 2); /* [self, true, yield_val1, yield_val2, ...] */
+        lua_insert(L, 2);
         return 1 + nresults;
 
     } else if (status == LUA_OK) {
         lua_pop(co, nresults);
         lua_pushboolean(L, 1);
         lua_setfield(L, 1, "_dead");
-        lua_pushboolean(L, 1); /* success, thread completed */
+        lua_pushboolean(L, 1);
         return 1;
 
     } else {
@@ -221,9 +185,6 @@ static int lua_async_thread_resume(lua_State *L) {
     }
 }
 
-/* thread:cancel()
- * Marks the thread as cancelled.  The coroutine will not be resumed again
- * by the auto-tick, and thread:resume() will return false. */
 static int lua_async_thread_cancel(lua_State *L) {
     luaL_checktype(L, 1, LUA_TTABLE);
     lua_pushboolean(L, 1);
@@ -231,7 +192,6 @@ static int lua_async_thread_cancel(lua_State *L) {
     return 0;
 }
 
-/* thread:is_alive()  →  boolean */
 static int lua_async_thread_is_alive(lua_State *L) {
     luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -247,14 +207,12 @@ static int lua_async_thread_is_alive(lua_State *L) {
     return 1;
 }
 
-/* thread:is_cancelled()  →  boolean */
 static int lua_async_thread_is_cancelled(lua_State *L) {
     luaL_checktype(L, 1, LUA_TTABLE);
     lua_getfield(L, 1, "_cancelled");
     return 1;
 }
 
-/* thread:status()  →  "pending" | "suspended" | "dead" | "cancelled" */
 static int lua_async_thread_status(lua_State *L) {
     luaL_checktype(L, 1, LUA_TTABLE);
 
@@ -287,7 +245,6 @@ static int lua_async_thread_status(lua_State *L) {
     if (s == LUA_YIELD) {
         lua_pushliteral(L, "suspended");
     } else if (s == LUA_OK) {
-        /* A fresh coroutine (not yet started) has the function on its stack */
         lua_pushstring(L, lua_gettop(co) > 0 ? "pending" : "dead");
     } else {
         lua_pushliteral(L, "dead");
@@ -295,45 +252,25 @@ static int lua_async_thread_status(lua_State *L) {
     return 1;
 }
 
-/* =========================================================================
-   Module-level functions
-   ========================================================================= */
-
-/* async.make_thread(fn)  →  thread
- * Creates a new thread from fn.  The thread is NOT started automatically;
- * call thread:resume() to advance it. */
 static int lua_async_make_thread(lua_State *L) {
     luaL_checktype(L, 1, LUA_TFUNCTION);
     async_create_thread_table(L, 1);
     return 1;
 }
 
-/* async.start(fn)  →  thread
- * Creates a new thread, performs the first resume immediately, and
- * registers it for automatic per-frame updates.
- *
- * Inside the coroutine, yield with a signal to control timing:
- *   async.yield()            -- resume next frame
- *   async.yield_frame()      -- same
- *   async.yield_frames(n)    -- resume after n frames
- *   async.yield_seconds(t)   -- resume after t unscaled seconds
- */
 static int lua_async_start(lua_State *L) {
     luaL_checktype(L, 1, LUA_TFUNCTION);
     ScriptRuntime *runtime = lua_runtime_instance(L);
 
-    /* Build thread table (fn is at position 1, stack becomes [fn, tbl]) */
     async_create_thread_table(L, 1);
     int tbl_abs = lua_gettop(L);
 
-    /* Get the coroutine for the first resume */
     lua_getfield(L, tbl_abs, "_co");
     lua_State *co = lua_tothread(L, -1);
     lua_pop(L, 1);
 
-    if (!co) {
-        return 1; /* return the (invalid) thread table anyway */
-    }
+    if (!co)
+        return 1;
 
     int nresults = 0;
     int status   = lua_resume(co, L, 0, &nresults);
@@ -347,13 +284,11 @@ static int lua_async_start(lua_State *L) {
         async_register_auto_thread(L, tbl_abs);
 
     } else if (status == LUA_OK) {
-        /* Thread completed synchronously on the first resume */
         lua_pop(co, nresults);
         lua_pushboolean(L, 1);
         lua_setfield(L, tbl_abs, "_dead");
 
     } else {
-        /* Error on first resume */
         if (nresults > 0) {
             const char *err = lua_tostring(co, -1);
             log_err("[Lua Async] async.start error: %s", err ? err : "(no message)");
@@ -363,20 +298,14 @@ static int lua_async_start(lua_State *L) {
         lua_setfield(L, tbl_abs, "_dead");
     }
 
-    return 1; /* return thread table */
+    return 1;
 }
 
-/* async.yield() / async.yield_frame()
- * Yields the current coroutine and requests resumption on the next frame.
- * Must be called from within a coroutine. */
 static int lua_async_yield_frame(lua_State *L) {
     lua_pushliteral(L, "frame");
     return lua_yield(L, 1);
 }
 
-/* async.yield_frames(n)
- * Yields the current coroutine and requests resumption after n frames.
- * Must be called from within a coroutine. */
 static int lua_async_yield_frames(lua_State *L) {
     lua_Integer n = luaL_checkinteger(L, 1);
     if (n < 1) n = 1;
@@ -385,9 +314,6 @@ static int lua_async_yield_frames(lua_State *L) {
     return lua_yield(L, 2);
 }
 
-/* async.yield_seconds(t)
- * Yields the current coroutine and requests resumption after t unscaled seconds.
- * Must be called from within a coroutine. */
 static int lua_async_yield_seconds(lua_State *L) {
     lua_Number t = luaL_checknumber(L, 1);
     if (t < 0.0) t = 0.0;
@@ -395,10 +321,6 @@ static int lua_async_yield_seconds(lua_State *L) {
     lua_pushnumber(L, t);
     return lua_yield(L, 2);
 }
-
-/* =========================================================================
-   Per-frame auto-thread tick  (called from script_runtime_begin_frame)
-   ========================================================================= */
 
 void script_async_tick(ScriptRuntime *runtime) {
     if (!runtime || !runtime->lua_state)
@@ -417,7 +339,7 @@ void script_async_tick(ScriptRuntime *runtime) {
     int write_pos = 1;
 
     for (int i = 1; i <= len; i++) {
-        lua_rawgeti(L, list_idx, i); /* push thread table */
+        lua_rawgeti(L, list_idx, i);
 
         if (!lua_istable(L, -1)) {
             lua_pop(L, 1);
@@ -426,7 +348,6 @@ void script_async_tick(ScriptRuntime *runtime) {
 
         int tbl = lua_gettop(L);
 
-        /* ---- check cancelled / dead ---- */
         lua_getfield(L, tbl, "_cancelled");
         int cancelled = lua_toboolean(L, -1);
         lua_pop(L, 1);
@@ -436,11 +357,10 @@ void script_async_tick(ScriptRuntime *runtime) {
         lua_pop(L, 1);
 
         if (cancelled || dead) {
-            lua_pop(L, 1); /* discard thread table */
+            lua_pop(L, 1);
             continue;
         }
 
-        /* ---- check wait condition ---- */
         lua_getfield(L, tbl, "_wait_type");
         const char *wait_type = lua_isnil(L, -1) ? NULL : lua_tostring(L, -1);
         lua_pop(L, 1);
@@ -455,7 +375,7 @@ void script_async_tick(ScriptRuntime *runtime) {
         } else if (strcmp(wait_type, "seconds") == 0) {
             should_resume = ((lua_Number)runtime->time_unscaled_elapsed_time >= wait_value);
         } else {
-            should_resume = 1; /* unknown type — resume immediately */
+            should_resume = 1;
         }
 
         boolean keep = True;
@@ -494,30 +414,24 @@ void script_async_tick(ScriptRuntime *runtime) {
         }
 
         if (keep) {
-            /* Compact: store at write_pos (rawseti pops the table) */
             lua_rawseti(L, list_idx, write_pos++);
         } else {
-            lua_pop(L, 1); /* discard thread table */
+            lua_pop(L, 1);
         }
     }
 
-    /* Nil out tail entries left over from compaction */
     for (int i = write_pos; i <= len; i++) {
         lua_pushnil(L);
         lua_rawseti(L, list_idx, i);
     }
 
-    lua_pop(L, 1); /* pop list table */
+    lua_pop(L, 1);
 }
-
-/* =========================================================================
-   Module open
-   ========================================================================= */
 
 static const luaL_Reg async_module_methods[] = {
     {"make_thread",   lua_async_make_thread},
     {"start",         lua_async_start},
-    {"yield",         lua_async_yield_frame},   /* convenience alias */
+    {"yield",         lua_async_yield_frame},
     {"yield_frame",   lua_async_yield_frame},
     {"yield_frames",  lua_async_yield_frames},
     {"yield_seconds", lua_async_yield_seconds},
@@ -525,7 +439,6 @@ static const luaL_Reg async_module_methods[] = {
 };
 
 int luaopen_engine_async(lua_State *L) {
-    /* Ensure the auto-threads list exists in the registry */
     lua_getfield(L, LUA_REGISTRYINDEX, AsyncThreadsRegistryKey);
     if (!lua_istable(L, -1)) {
         lua_pop(L, 1);
