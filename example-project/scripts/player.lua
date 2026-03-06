@@ -34,7 +34,7 @@ local player = {
 	death_scene_requested = false,
 	hud_hidden_for_transition = false,
 	fov_walk = 30.0,
-	fov_run = 60.0,
+	fov_run = 45.0,
 	fov_lerp_speed = 4.0,
 }
 
