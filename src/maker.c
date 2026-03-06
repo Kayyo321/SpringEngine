@@ -597,5 +597,225 @@ result make_ui_document(const char *project_root, const char *document_name) {
 
 	log_msg("Created UI document '%s'", ui_path);
 	return Ok;
-    
+}
+
+result make_shader(const char *project_root, const char *shader_name) {
+	if (!project_root || project_root[0] == '\0' || !shader_name || shader_name[0] == '\0')
+		return Err;
+
+	char base_name[PATH_MAX] = {0};
+	if (snprintf(base_name, sizeof(base_name), "%s", shader_name) >= (int)sizeof(base_name))
+		return Err;
+
+	/* Strip .shader.conf suffix if the user included it. */
+	const char *shader_suffix = ".shader.conf";
+	const usize base_len = strlen(base_name);
+	const usize shader_suffix_len = strlen(shader_suffix);
+	if (base_len >= shader_suffix_len && strcmp(base_name + (base_len - shader_suffix_len), shader_suffix) == 0)
+		base_name[base_len - shader_suffix_len] = '\0';
+
+	char shaders_dir[PATH_MAX] = {0};
+	if (join_path(project_root, "shaders", shaders_dir, sizeof(shaders_dir)) != Ok)
+		return Err;
+
+	if (ensure_directory_recursive(shaders_dir) != Ok)
+		return Err;
+
+	char conf_name[PATH_MAX] = {0};
+	char vert_name[PATH_MAX] = {0};
+	char frag_name[PATH_MAX] = {0};
+	if (snprintf(conf_name, sizeof(conf_name), "%s.shader.conf", base_name) >= (int)sizeof(conf_name))
+		return Err;
+	if (snprintf(vert_name, sizeof(vert_name), "%s.vert.glsl", base_name) >= (int)sizeof(vert_name))
+		return Err;
+	if (snprintf(frag_name, sizeof(frag_name), "%s.frag.glsl", base_name) >= (int)sizeof(frag_name))
+		return Err;
+
+	char conf_path[PATH_MAX] = {0};
+	char vert_path[PATH_MAX] = {0};
+	char frag_path[PATH_MAX] = {0};
+	if (join_path(shaders_dir, conf_name, conf_path, sizeof(conf_path)) != Ok)
+		return Err;
+	if (join_path(shaders_dir, vert_name, vert_path, sizeof(vert_path)) != Ok)
+		return Err;
+	if (join_path(shaders_dir, frag_name, frag_path, sizeof(frag_path)) != Ok)
+		return Err;
+
+	char shader_conf[1024] = {0};
+	if (snprintf(
+			shader_conf,
+			sizeof(shader_conf),
+			"[Shader]\n"
+			"schema = 1\n"
+			"id = \"%s\"\n"
+			"vertex = \"%s\"\n"
+			"fragment = \"%s\"\n"
+			"\n"
+			"[Shader.States]\n"
+			"blend = \"alpha\"\n"
+			"depth_test = false\n"
+			"depth_write = false\n"
+			"cull = \"none\"\n",
+			base_name,
+			vert_name,
+			frag_name) >= (int)sizeof(shader_conf)) {
+		return Err;
+	}
+
+	const char *vert_src =
+		"#version 330\n"
+		"\n"
+		"in vec3 vertexPosition;\n"
+		"in vec2 vertexTexCoord;\n"
+		"in vec4 vertexColor;\n"
+		"\n"
+		"out vec2 fragTexCoord;\n"
+		"out vec4 fragColor;\n"
+		"\n"
+		"uniform mat4 mvp;\n"
+		"\n"
+		"void main() {\n"
+		"    fragTexCoord = vertexTexCoord;\n"
+		"    fragColor = vertexColor;\n"
+		"    gl_Position = mvp * vec4(vertexPosition, 1.0);\n"
+		"}\n";
+
+	const char *frag_src =
+		"#version 330\n"
+		"\n"
+		"in vec2 fragTexCoord;\n"
+		"in vec4 fragColor;\n"
+		"\n"
+		"out vec4 finalColor;\n"
+		"\n"
+		"uniform sampler2D texture0;\n"
+		"uniform vec4 colDiffuse;\n"
+		"\n"
+		"void main() {\n"
+		"    vec4 texel = texture(texture0, fragTexCoord);\n"
+		"    finalColor = texel * colDiffuse * fragColor;\n"
+		"}\n";
+
+	if (write_new_file(conf_path, shader_conf) != Ok)
+		return Err;
+	if (write_new_file(vert_path, vert_src) != Ok)
+		return Err;
+	if (write_new_file(frag_path, frag_src) != Ok)
+		return Err;
+
+	log_msg("Created shader '%s' (%s, %s, %s)", base_name, conf_path, vert_path, frag_path);
+	return Ok;
+}
+
+result make_material(const char *project_root, const char *material_name) {
+	if (!project_root || project_root[0] == '\0' || !material_name || material_name[0] == '\0')
+		return Err;
+
+	char base_name[PATH_MAX] = {0};
+	if (snprintf(base_name, sizeof(base_name), "%s", material_name) >= (int)sizeof(base_name))
+		return Err;
+
+	/* Strip .mat.conf suffix if the user included it. */
+	const char *mat_suffix = ".mat.conf";
+	const usize base_len = strlen(base_name);
+	const usize mat_suffix_len = strlen(mat_suffix);
+	if (base_len >= mat_suffix_len && strcmp(base_name + (base_len - mat_suffix_len), mat_suffix) == 0)
+		base_name[base_len - mat_suffix_len] = '\0';
+
+	char materials_dir[PATH_MAX] = {0};
+	if (join_path(project_root, "materials", materials_dir, sizeof(materials_dir)) != Ok)
+		return Err;
+
+	if (ensure_directory_recursive(materials_dir) != Ok)
+		return Err;
+
+	char mat_file_name[PATH_MAX] = {0};
+	if (snprintf(mat_file_name, sizeof(mat_file_name), "%s.mat.conf", base_name) >= (int)sizeof(mat_file_name))
+		return Err;
+
+	char mat_path[PATH_MAX] = {0};
+	if (join_path(materials_dir, mat_file_name, mat_path, sizeof(mat_path)) != Ok)
+		return Err;
+
+	char mat_conf[512] = {0};
+	if (snprintf(
+			mat_conf,
+			sizeof(mat_conf),
+			"[Material]\n"
+			"schema = 1\n"
+			"id = \"%s\"\n"
+			"shader = \"%s\"\n",
+			base_name,
+			base_name) >= (int)sizeof(mat_conf)) {
+		return Err;
+	}
+
+	if (write_new_file(mat_path, mat_conf) != Ok)
+		return Err;
+
+	log_msg("Created material '%s'", mat_path);
+	return Ok;
+}
+
+result make_prefab(const char *project_root, const char *prefab_name) {
+	if (!project_root || project_root[0] == '\0' || !prefab_name || prefab_name[0] == '\0')
+		return Err;
+
+	char base_name[PATH_MAX] = {0};
+	if (snprintf(base_name, sizeof(base_name), "%s", prefab_name) >= (int)sizeof(base_name))
+		return Err;
+
+	/* Strip .prefab.conf suffix if the user included it. */
+	const char *prefab_suffix = ".prefab.conf";
+	const usize base_len = strlen(base_name);
+	const usize prefab_suffix_len = strlen(prefab_suffix);
+	if (base_len >= prefab_suffix_len && strcmp(base_name + (base_len - prefab_suffix_len), prefab_suffix) == 0)
+		base_name[base_len - prefab_suffix_len] = '\0';
+
+	char prefabs_dir[PATH_MAX] = {0};
+	if (join_path(project_root, "prefabs", prefabs_dir, sizeof(prefabs_dir)) != Ok)
+		return Err;
+
+	if (ensure_directory_recursive(prefabs_dir) != Ok)
+		return Err;
+
+	char prefab_file_name[PATH_MAX] = {0};
+	if (snprintf(prefab_file_name, sizeof(prefab_file_name), "%s.prefab.conf", base_name) >= (int)sizeof(prefab_file_name))
+		return Err;
+
+	char prefab_path[PATH_MAX] = {0};
+	if (join_path(prefabs_dir, prefab_file_name, prefab_path, sizeof(prefab_path)) != Ok)
+		return Err;
+
+	char prefab_conf[1024] = {0};
+	if (snprintf(
+			prefab_conf,
+			sizeof(prefab_conf),
+			"[Prefab]\n"
+			"schema = 1\n"
+			"id = \"%s\"\n"
+			"\n"
+			"[Prefab.Defaults]\n"
+			"enabled = true\n"
+			"lifetime = \"scene\"\n"
+			"tags = []\n"
+			"\n"
+			"[Prefab.Transform]\n"
+			"position = [0.0, 0.0, 0.0]\n"
+			"rotation_euler = [0.0, 0.0, 0.0]\n"
+			"scale = [1.0, 1.0, 1.0]\n"
+			"anchor = \"center\"\n"
+			"\n"
+			"[Prefab.Components.Script]\n"
+			"module = \"scripts/%s.lua\"\n",
+			base_name,
+			base_name) >= (int)sizeof(prefab_conf)) {
+		return Err;
+	}
+
+	if (write_new_file(prefab_path, prefab_conf) != Ok)
+		return Err;
+
+	log_msg("Created prefab '%s'", prefab_path);
+	return Ok;
 }

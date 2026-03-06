@@ -17,6 +17,9 @@ static void log_usage(void) {
     log_msg("  --make-script <project_root> <script_name> | -ms <project_root> <script_name>");
     log_msg("  --make-scene <project_root> <scene_name> | -msc <project_root> <scene_name>");
     log_msg("  --make-ui-doc <project_root> <doc_name> | -mud <project_root> <doc_name>");
+    log_msg("  --make-shader <project_root> <shader_name> | -msh <project_root> <shader_name>");
+    log_msg("  --make-material <project_root> <material_name> | -mmat <project_root> <material_name>");
+    log_msg("  --make-prefab <project_root> <prefab_name> | -mpf <project_root> <prefab_name>");
     log_msg("  --pack <source_directory> <archive.targame> | -p <source_directory> <archive.targame>");
     log_msg("  --unpack <archive.targame> <destination_directory> | -u <archive.targame> <destination_directory>");
 }
@@ -143,6 +146,57 @@ void run_program(void) {
 
         if (make_ui_document(project_root, doc_name) != Ok) {
             log_err("Failed to create UI doc '%s' at path '%s'", doc_name, project_root);
+            quit(Err);
+        }
+
+        return;
+    }
+
+    if (ArgEqu(1, "--make-shader") || ArgEqu(1, "-msh")) {
+        if (program.argc < 4) {
+            log_err("Missing project root and shader name for --make-shader command");
+            quit(Err);
+        }
+
+        const char *project_root = program.argv[2];
+        const char *shader_name = program.argv[3];
+
+        if (make_shader(project_root, shader_name) != Ok) {
+            log_err("Failed to create shader '%s' at path '%s'", shader_name, project_root);
+            quit(Err);
+        }
+
+        return;
+    }
+
+    if (ArgEqu(1, "--make-material") || ArgEqu(1, "-mmat")) {
+        if (program.argc < 4) {
+            log_err("Missing project root and material name for --make-material command");
+            quit(Err);
+        }
+
+        const char *project_root = program.argv[2];
+        const char *material_name = program.argv[3];
+
+        if (make_material(project_root, material_name) != Ok) {
+            log_err("Failed to create material '%s' at path '%s'", material_name, project_root);
+            quit(Err);
+        }
+
+        return;
+    }
+
+    if (ArgEqu(1, "--make-prefab") || ArgEqu(1, "-mpf")) {
+        if (program.argc < 4) {
+            log_err("Missing project root and prefab name for --make-prefab command");
+            quit(Err);
+        }
+
+        const char *project_root = program.argv[2];
+        const char *prefab_name = program.argv[3];
+
+        if (make_prefab(project_root, prefab_name) != Ok) {
+            log_err("Failed to create prefab '%s' at path '%s'", prefab_name, project_root);
             quit(Err);
         }
 

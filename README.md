@@ -140,5 +140,8 @@ Scaffolding helpers:
 - `--make-script <project_root> <script_name>`
 - `--make-scene <project_root> <scene_name>`
 - `--make-ui-doc <project_root> <doc_name>`
+- `--make-shader <project_root> <shader_name>` — creates `shaders/<name>.shader.conf`, `.vert.glsl`, `.frag.glsl`
+- `--make-material <project_root> <material_name>` — creates `materials/<name>.mat.conf`
+- `--make-prefab <project_root> <prefab_name>` — creates `prefabs/<name>.prefab.conf`
 
 Thanks :)
