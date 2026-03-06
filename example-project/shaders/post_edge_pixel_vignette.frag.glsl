@@ -14,6 +14,7 @@ uniform float u_vignette_inner;
 uniform float u_vignette_outer;
 uniform float u_edge_glow;
 uniform float u_pulse_speed;
+uniform float u_intensity;
 
 float hash21(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -47,10 +48,12 @@ void main() {
     vec3 crt_tint = vec3(r_noise, g_noise, b_noise);
     crt_tint = (crt_tint - 0.5) * 0.48;
 
+    float intensity = clamp(u_intensity, 0.0, 1.0);
     vec3 mixed_rgb = mix(base_color.rgb, pixel_color.rgb, edge_mask);
     mixed_rgb *= (1.0 - (edge_mask * 0.34));
     mixed_rgb += glow_tint * edge_mask;
     mixed_rgb += crt_tint * edge_mask;
+    mixed_rgb = mix(base_color.rgb, mixed_rgb, intensity);
 
     finalColor = vec4(mixed_rgb, base_color.a) * colDiffuse * fragColor;
 }

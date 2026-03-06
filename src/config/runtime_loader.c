@@ -66,6 +66,12 @@ static void postfx_reset(void);
 static result postfx_ensure_targets(int width, int height);
 static void draw_texture_fullscreen(Texture2D texture, int width, int height);
 static result shader_cache_acquire_for_material(const char *material_id, Shader **out_shader, int *out_time_loc, int *out_speed_loc, int *out_freq_loc, int *out_strength_loc);
+static int find_postfx_pass_index_by_alias(const char *material_alias);
+static boolean material_alias_exists_internal(const char *material_alias);
+static int find_material_override_index(const char *material_alias, const char *property_name);
+static boolean material_override_get_float(const char *material_alias, const char *property_name, float *out_value);
+static void material_override_reset(void);
+static float normalize_material_property_value(const char *property_name, float value);
 static boolean toml_number_to_float(toml_datum_t value, float *out_number);
 static unsigned char scale_color_channel(unsigned char channel, float multiplier);
 static Color apply_global_light_to_color(Color color);
@@ -92,6 +98,11 @@ static const float RuntimePhysicsGravityY = 240.0f;
 enum {
     RuntimeMaxActorScriptComponents = 16,
     RuntimeMaxPostFxPasses = 4,
+    RuntimeMaxMaterialOverrides = 256,
+};
+
+enum {
+    RuntimeMaxMaterialPropertyLength = 64,
 };
 
 typedef struct {
@@ -110,6 +121,7 @@ typedef struct SharedShaderEntry {
     int vignette_outer_location;
     int edge_glow_location;
     int pulse_speed_location;
+    int intensity_location;
     int distort_speed_location;
     int distort_frequency_location;
     int distort_strength_location;
@@ -119,11 +131,13 @@ typedef struct SharedShaderEntry {
 
 typedef struct {
     char shader_id[ShaderRegistryMaxIdLength];
+    char material_alias[ShaderRegistryMaxIdLength];
     float pixel_size;
     float vignette_inner;
     float vignette_outer;
     float edge_glow;
     float pulse_speed;
+    float intensity;
 } PostFxPassConfig;
 
 typedef struct {
@@ -147,6 +161,15 @@ static PostFxStackConfig runtime_postfx_stack = {0};
 static RenderTexture2D runtime_postfx_scene_target = {0};
 static RenderTexture2D runtime_postfx_ping_target = {0};
 static boolean runtime_postfx_targets_loaded = False;
+
+typedef struct {
+    char material_alias[ShaderRegistryMaxIdLength];
+    char property_name[RuntimeMaxMaterialPropertyLength];
+    float value;
+} MaterialPropertyOverride;
+
+static MaterialPropertyOverride runtime_material_overrides[RuntimeMaxMaterialOverrides] = {0};
+static usize runtime_material_override_count = 0;
 
 static result ensure_shared_texture_capacity(usize required_capacity) {
     if (required_capacity <= shared_texture_entry_capacity)
@@ -431,6 +454,7 @@ static result shader_cache_acquire_by_id(const char *shader_id, SharedShaderEntr
     entry->vignette_outer_location = GetShaderLocation(entry->shader, "u_vignette_outer");
     entry->edge_glow_location = GetShaderLocation(entry->shader, "u_edge_glow");
     entry->pulse_speed_location = GetShaderLocation(entry->shader, "u_pulse_speed");
+    entry->intensity_location = GetShaderLocation(entry->shader, "u_intensity");
     entry->distort_speed_location = GetShaderLocation(entry->shader, "u_distort_speed");
     entry->distort_frequency_location = GetShaderLocation(entry->shader, "u_distort_frequency");
     entry->distort_strength_location = GetShaderLocation(entry->shader, "u_distort_strength");
@@ -438,6 +462,88 @@ static result shader_cache_acquire_by_id(const char *shader_id, SharedShaderEntr
 
     *out_entry = entry;
     return Ok;
+}
+
+static int find_postfx_pass_index_by_alias(const char *material_alias) {
+    if (!material_alias || material_alias[0] == '\0')
+        return -1;
+
+    for (usize index = 0; index < runtime_postfx_stack.pass_count; ++index) {
+        const PostFxPassConfig *pass = &runtime_postfx_stack.passes[index];
+        if (strcmp(pass->material_alias, material_alias) == 0)
+            return (int)index;
+
+        if (strcmp(pass->shader_id, material_alias) == 0)
+            return (int)index;
+    }
+
+    return -1;
+}
+
+static boolean material_alias_exists_internal(const char *material_alias) {
+    if (!material_alias || material_alias[0] == '\0')
+        return False;
+
+    if (material_library_find_by_id(&runtime_state.material_library, material_alias))
+        return True;
+
+    return find_postfx_pass_index_by_alias(material_alias) >= 0 ? True : False;
+}
+
+static int find_material_override_index(const char *material_alias, const char *property_name) {
+    if (!material_alias || material_alias[0] == '\0' || !property_name || property_name[0] == '\0')
+        return -1;
+
+    for (usize index = 0; index < runtime_material_override_count; ++index) {
+        const MaterialPropertyOverride *entry = &runtime_material_overrides[index];
+        if (strcmp(entry->material_alias, material_alias) == 0 && strcmp(entry->property_name, property_name) == 0)
+            return (int)index;
+    }
+
+    return -1;
+}
+
+static boolean material_override_get_float(const char *material_alias, const char *property_name, float *out_value) {
+    if (!out_value)
+        return False;
+
+    const int index = find_material_override_index(material_alias, property_name);
+    if (index < 0)
+        return False;
+
+    *out_value = runtime_material_overrides[index].value;
+    return True;
+}
+
+static void material_override_reset(void) {
+    memset(runtime_material_overrides, 0, sizeof(runtime_material_overrides));
+    runtime_material_override_count = 0;
+}
+
+static float normalize_material_property_value(const char *property_name, float value) {
+    if (!property_name)
+        return value;
+
+    if (strcmp(property_name, "intensity") != 0)
+        return value;
+
+    if (value >= 0.0f && value <= 1.0f)
+        return value;
+
+    // Convenience mapping for health-like values: 100 HP -> 0 intensity, <=15 HP -> max intensity.
+    float health = value;
+    if (health < 0.0f)
+        health = 0.0f;
+    if (health > 100.0f)
+        health = 100.0f;
+
+    if (health >= 100.0f)
+        return 0.0f;
+
+    if (health <= 15.0f)
+        return 1.0f;
+
+    return (100.0f - health) / 85.0f;
 }
 
 static result postfx_load_stack_config(const ShaderGlobalConfig *global_config, const ShaderLibrary *shader_library) {
@@ -530,12 +636,29 @@ static result postfx_load_stack_config(const ShaderGlobalConfig *global_config, 
             toml_free(parsed);
             return Err;
         }
+        if (snprintf(out_pass->material_alias, sizeof(out_pass->material_alias), "%s", shader.u.s) >= (int)sizeof(out_pass->material_alias)) {
+            toml_free(parsed);
+            return Err;
+        }
+
+        toml_datum_t material_alias = toml_get(pass, "material_alias");
+        if (material_alias.type != TOML_STRING || !material_alias.u.s || material_alias.u.s[0] == '\0')
+            material_alias = toml_get(pass, "alias");
+        if (material_alias.type != TOML_STRING || !material_alias.u.s || material_alias.u.s[0] == '\0')
+            material_alias = toml_get(pass, "material");
+        if (material_alias.type == TOML_STRING && material_alias.u.s && material_alias.u.s[0] != '\0') {
+            if (snprintf(out_pass->material_alias, sizeof(out_pass->material_alias), "%s", material_alias.u.s) >= (int)sizeof(out_pass->material_alias)) {
+                toml_free(parsed);
+                return Err;
+            }
+        }
 
         out_pass->pixel_size = 4.0f;
         out_pass->vignette_inner = 0.55f;
         out_pass->vignette_outer = 0.98f;
         out_pass->edge_glow = 0.35f;
         out_pass->pulse_speed = 1.3f;
+        out_pass->intensity = 1.0f;
 
         float numeric_value = 0.0f;
         toml_datum_t pixel_size = toml_get(pass, "pixel_size");
@@ -558,6 +681,10 @@ static result postfx_load_stack_config(const ShaderGlobalConfig *global_config, 
         if (toml_number_to_float(pulse_speed, &numeric_value) && numeric_value >= 0.0f)
             out_pass->pulse_speed = numeric_value;
 
+        toml_datum_t intensity = toml_get(pass, "intensity");
+        if (toml_number_to_float(intensity, &numeric_value) && numeric_value >= 0.0f)
+            out_pass->intensity = numeric_value;
+
         runtime_postfx_stack.pass_count++;
     }
 
@@ -578,6 +705,7 @@ static void postfx_reset(void) {
     runtime_postfx_ping_target = (RenderTexture2D){0};
     runtime_postfx_targets_loaded = False;
     memset(&runtime_postfx_stack, 0, sizeof(runtime_postfx_stack));
+    material_override_reset();
 }
 
 static result postfx_ensure_targets(int width, int height) {
@@ -3737,6 +3865,31 @@ static void frame_update(void) {
 
             const float runtime_time = (float)GetTime();
             const float screen_size[2] = {(float)screen_width, (float)screen_height};
+            float pixel_size = pass->pixel_size;
+            float vignette_inner = pass->vignette_inner;
+            float vignette_outer = pass->vignette_outer;
+            float edge_glow = pass->edge_glow;
+            float pulse_speed = pass->pulse_speed;
+            float intensity = pass->intensity;
+            float override_value = 0.0f;
+
+            if (material_override_get_float(pass->material_alias, "pixel_size", &override_value))
+                pixel_size = override_value;
+            if (material_override_get_float(pass->material_alias, "vignette_inner", &override_value))
+                vignette_inner = override_value;
+            if (material_override_get_float(pass->material_alias, "vignette_outer", &override_value))
+                vignette_outer = override_value;
+            if (material_override_get_float(pass->material_alias, "edge_glow", &override_value))
+                edge_glow = override_value;
+            if (material_override_get_float(pass->material_alias, "pulse_speed", &override_value))
+                pulse_speed = override_value;
+            if (material_override_get_float(pass->material_alias, "intensity", &override_value))
+                intensity = override_value;
+
+            if (intensity < 0.0f)
+                intensity = 0.0f;
+
+            edge_glow *= intensity;
 
             if (last_pass) {
                 if (shader_entry->time_location >= 0)
@@ -3744,15 +3897,17 @@ static void frame_update(void) {
                 if (shader_entry->screen_size_location >= 0)
                     SetShaderValue(shader_entry->shader, shader_entry->screen_size_location, screen_size, SHADER_UNIFORM_VEC2);
                 if (shader_entry->pixel_size_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->pixel_size_location, &pass->pixel_size, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->pixel_size_location, &pixel_size, SHADER_UNIFORM_FLOAT);
                 if (shader_entry->vignette_inner_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->vignette_inner_location, &pass->vignette_inner, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->vignette_inner_location, &vignette_inner, SHADER_UNIFORM_FLOAT);
                 if (shader_entry->vignette_outer_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->vignette_outer_location, &pass->vignette_outer, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->vignette_outer_location, &vignette_outer, SHADER_UNIFORM_FLOAT);
                 if (shader_entry->edge_glow_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->edge_glow_location, &pass->edge_glow, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->edge_glow_location, &edge_glow, SHADER_UNIFORM_FLOAT);
                 if (shader_entry->pulse_speed_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->pulse_speed_location, &pass->pulse_speed, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->pulse_speed_location, &pulse_speed, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->intensity_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->intensity_location, &intensity, SHADER_UNIFORM_FLOAT);
 
                 BeginShaderMode(shader_entry->shader);
                 draw_texture_fullscreen(input_target->texture, screen_width, screen_height);
@@ -3770,15 +3925,17 @@ static void frame_update(void) {
                 if (shader_entry->screen_size_location >= 0)
                     SetShaderValue(shader_entry->shader, shader_entry->screen_size_location, screen_size, SHADER_UNIFORM_VEC2);
                 if (shader_entry->pixel_size_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->pixel_size_location, &pass->pixel_size, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->pixel_size_location, &pixel_size, SHADER_UNIFORM_FLOAT);
                 if (shader_entry->vignette_inner_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->vignette_inner_location, &pass->vignette_inner, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->vignette_inner_location, &vignette_inner, SHADER_UNIFORM_FLOAT);
                 if (shader_entry->vignette_outer_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->vignette_outer_location, &pass->vignette_outer, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->vignette_outer_location, &vignette_outer, SHADER_UNIFORM_FLOAT);
                 if (shader_entry->edge_glow_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->edge_glow_location, &pass->edge_glow, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->edge_glow_location, &edge_glow, SHADER_UNIFORM_FLOAT);
                 if (shader_entry->pulse_speed_location >= 0)
-                    SetShaderValue(shader_entry->shader, shader_entry->pulse_speed_location, &pass->pulse_speed, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(shader_entry->shader, shader_entry->pulse_speed_location, &pulse_speed, SHADER_UNIFORM_FLOAT);
+                if (shader_entry->intensity_location >= 0)
+                    SetShaderValue(shader_entry->shader, shader_entry->intensity_location, &intensity, SHADER_UNIFORM_FLOAT);
 
                 BeginShaderMode(shader_entry->shader);
                 draw_texture_fullscreen(input_target->texture, screen_width, screen_height);
@@ -5756,5 +5913,50 @@ result validate_project_version_requirement(const char *project_path) {
 
     log_msg("Version requirement validation passed for '%s'", project_path);
     vfs_unmount();
+    return Ok;
+}
+
+boolean runtime_material_alias_exists(const char *material_alias) {
+    if (!runtime_state.active)
+        return False;
+
+    return material_alias_exists_internal(material_alias);
+}
+
+result runtime_material_set_property(const char *material_alias, const char *property_name, float value) {
+    RuntimeGuardActiveErr();
+
+    if (!material_alias || material_alias[0] == '\0' || !property_name || property_name[0] == '\0')
+        return Err;
+
+    if (!material_alias_exists_internal(material_alias))
+        return Err;
+
+    const float normalized_value = normalize_material_property_value(property_name, value);
+    const int existing_index = find_material_override_index(material_alias, property_name);
+    if (existing_index >= 0) {
+        runtime_material_overrides[existing_index].value = normalized_value;
+        return Ok;
+    }
+
+    if (runtime_material_override_count >= RuntimeMaxMaterialOverrides) {
+        log_err("Material override table is full; cannot set '%s.%s'", material_alias, property_name);
+        return Err;
+    }
+
+    MaterialPropertyOverride *entry = &runtime_material_overrides[runtime_material_override_count++];
+    memset(entry, 0, sizeof(*entry));
+
+    if (snprintf(entry->material_alias, sizeof(entry->material_alias), "%s", material_alias) >= (int)sizeof(entry->material_alias)) {
+        runtime_material_override_count--;
+        return Err;
+    }
+
+    if (snprintf(entry->property_name, sizeof(entry->property_name), "%s", property_name) >= (int)sizeof(entry->property_name)) {
+        runtime_material_override_count--;
+        return Err;
+    }
+
+    entry->value = normalized_value;
     return Ok;
 }

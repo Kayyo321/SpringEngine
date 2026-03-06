@@ -145,6 +145,17 @@ local function configure_player_point_light(self)
 	end
 end
 
+local function update_vignette_from_health(self)
+	if not self.get_material_by_name then
+		return
+	end
+
+	local vignette = self:get_material_by_name("vignette")
+	if vignette and vignette.set then
+		vignette.set("intensity", self.health)
+	end
+end
+
 local function apply_knockback(self, knockback_direction_x)
 	if self.is_dead then
 		return
@@ -195,6 +206,7 @@ function player:start()
 	end
 
 	configure_player_point_light(self)
+	update_vignette_from_health(self)
 	log_message("player.lua start")
 end
 
@@ -246,8 +258,11 @@ function player:update()
 	end
 
 	if self.is_dead then
+		update_vignette_from_health(self)
 		return
 	end
+
+	update_vignette_from_health(self)
 
 	if self.hurt_timer > 0.0 then
 		self.hurt_timer = math.max(0.0, self.hurt_timer - delta_time)

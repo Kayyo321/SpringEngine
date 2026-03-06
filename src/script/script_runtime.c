@@ -1064,6 +1064,36 @@ static int lua_script_self_destroy(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_script_material_set(lua_State *lua_state) {
+    const char *material_alias = lua_tostring(lua_state, lua_upvalueindex(1));
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int property_index = using_colon_call ? 2 : 1;
+    const int value_index = using_colon_call ? 3 : 2;
+
+    const char *property_name = luaL_checkstring(lua_state, property_index);
+    const float value = (float)luaL_checknumber(lua_state, value_index);
+
+    lua_pushboolean(lua_state, runtime_material_set_property(material_alias ? material_alias : "", property_name, value) == Ok ? 1 : 0);
+    return 1;
+}
+
+static int lua_script_self_get_material_by_name(lua_State *lua_state) {
+    const int using_colon_call = lua_istable(lua_state, 1) ? 1 : 0;
+    const int alias_index = using_colon_call ? 2 : 1;
+    const char *material_alias = luaL_checkstring(lua_state, alias_index);
+
+    if (!runtime_material_alias_exists(material_alias)) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    lua_newtable(lua_state);
+    lua_pushstring(lua_state, material_alias);
+    lua_pushcclosure(lua_state, lua_script_material_set, 1);
+    lua_setfield(lua_state, -2, "set");
+    return 1;
+}
+
 static result call_script_method(lua_State *lua_state, int table_ref, const char *method_name, Actor *actor, const char *module_path) {
     const char *actor_id = actor && actor->id ? actor->id : "<unknown>";
 
@@ -1266,6 +1296,10 @@ result script_component_initialize(Actor *actor, ActorComponent *component, void
     lua_pushstring(lua_state, actor->id ? actor->id : "");
     lua_pushcclosure(lua_state, lua_script_self_destroy, 1);
     lua_setfield(lua_state, -2, "destroy");
+
+    lua_pushstring(lua_state, actor->id ? actor->id : "");
+    lua_pushcclosure(lua_state, lua_script_self_get_material_by_name, 1);
+    lua_setfield(lua_state, -2, "get_material_by_name");
 
     state->has_awake = table_has_function(lua_state, -1, "awake");
     state->has_start = table_has_function(lua_state, -1, "start");

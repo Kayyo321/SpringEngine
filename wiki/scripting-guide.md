@@ -43,8 +43,24 @@ Each script table gets:
 
 - `get_component(component_name, actor_id?)`
 - `destroy(actor_id?)`
+- `get_material_by_name(material_alias)`
 
 `actor_id` is optional and defaults to the owning actor.
+
+`get_material_by_name` returns a small material handle table with:
+
+- `set(property_name, value)`
+
+Example:
+
+```lua
+local vignette = self:get_material_by_name("vignette")
+if vignette then
+  vignette:set("intensity", player.health)
+end
+```
+
+For `intensity`, runtime accepts either direct `[0..1]` values or health-like values where `100 -> 0` and `<=15 -> 1`.
 
 ## UI Callback Format
 

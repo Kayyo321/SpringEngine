@@ -393,11 +393,13 @@ enabled = true
 
 [[PostFX.Passes]]
 shader = "post_edge_pixel_vignette"
+material_alias = "vignette"
 pixel_size = 5.0
 vignette_inner = 0.58
 vignette_outer = 1.0
 edge_glow = 0.42
 pulse_speed = 1.45
+intensity = 1.0
 ```
 
 Rules enforced:
@@ -405,6 +407,8 @@ Rules enforced:
 - `PostFX` table is required when file exists
 - at least one `[[PostFX.Passes]]` entry is required when enabled
 - each pass must provide `shader` id referencing a loaded shader descriptor
+- optional pass aliases: `material_alias` (preferred), `alias`, or `material`
+- optional `intensity` scales pass impact (`0.0` disables visual effect, `1.0` is full strength)
 
 Current runtime behavior:
 
