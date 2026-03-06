@@ -1530,9 +1530,11 @@ static result read_actor_transform_anchor(toml_datum_t actor_table, toml_datum_t
     return read_prefab_transform_anchor(actor_table, prefab_refs, prefabs_root, out_anchor);
 }
 
-static const char *find_static_sprite_texture(toml_datum_t actor_table, toml_datum_t *out_static_sprite_table) {
+static const char *find_static_sprite_texture(toml_datum_t actor_table, toml_datum_t *out_static_sprite_table, const char **out_camera_texture) {
     if (out_static_sprite_table)
         *out_static_sprite_table = (toml_datum_t){0};
+    if (out_camera_texture)
+        *out_camera_texture = Null;
 
     if (actor_table.type != TOML_TABLE)
         return Null;
@@ -1547,7 +1549,20 @@ static const char *find_static_sprite_texture(toml_datum_t actor_table, toml_dat
                 if (texture.type == TOML_STRING && texture.u.s && texture.u.s[0] != '\0') {
                     if (out_static_sprite_table)
                         *out_static_sprite_table = static_sprite;
+                    if (out_camera_texture) {
+                        toml_datum_t cam_tex = toml_get(static_sprite, "camera_texture");
+                        if (cam_tex.type == TOML_STRING && cam_tex.u.s && cam_tex.u.s[0] != '\0')
+                            *out_camera_texture = cam_tex.u.s;
+                    }
                     return texture.u.s;
+                }
+                toml_datum_t cam_tex = toml_get(static_sprite, "camera_texture");
+                if (cam_tex.type == TOML_STRING && cam_tex.u.s && cam_tex.u.s[0] != '\0') {
+                    if (out_static_sprite_table)
+                        *out_static_sprite_table = static_sprite;
+                    if (out_camera_texture)
+                        *out_camera_texture = cam_tex.u.s;
+                    return Null;
                 }
             }
         }
@@ -1561,7 +1576,20 @@ static const char *find_static_sprite_texture(toml_datum_t actor_table, toml_dat
             if (texture.type == TOML_STRING && texture.u.s && texture.u.s[0] != '\0') {
                 if (out_static_sprite_table)
                     *out_static_sprite_table = static_sprite;
+                if (out_camera_texture) {
+                    toml_datum_t cam_tex = toml_get(static_sprite, "camera_texture");
+                    if (cam_tex.type == TOML_STRING && cam_tex.u.s && cam_tex.u.s[0] != '\0')
+                        *out_camera_texture = cam_tex.u.s;
+                }
                 return texture.u.s;
+            }
+            toml_datum_t cam_tex = toml_get(static_sprite, "camera_texture");
+            if (cam_tex.type == TOML_STRING && cam_tex.u.s && cam_tex.u.s[0] != '\0') {
+                if (out_static_sprite_table)
+                    *out_static_sprite_table = static_sprite;
+                if (out_camera_texture)
+                    *out_camera_texture = cam_tex.u.s;
+                return Null;
             }
         }
     }
@@ -1650,8 +1678,13 @@ static result static_sprite_component_initialize(Actor *actor, ActorComponent *c
         return Err;
 
     StaticSpriteState *state = (StaticSpriteState *)component->data;
-    if (!state->texture_path[0])
+
+    if (!state->texture_path[0]) {
+        // Camera-texture-only sprites have no file path; that is valid.
+        if (state->camera_texture_source_id[0] != '\0')
+            return Ok;
         return Err;
+    }
 
     const char *material_main_texture = find_material_main_texture_ref(state->material_id);
     if (material_main_texture && material_main_texture[0] != '\0') {
@@ -1785,6 +1818,11 @@ static result direction_light_component_initialize(Actor *actor, ActorComponent 
 static void camera_component_dispose(CameraComponentData *state) {
     if (!state)
         return;
+
+    if (state->render_target_initialized) {
+        UnloadRenderTexture(state->render_target);
+        state->render_target_initialized = False;
+    }
 
     if (state->heap.pointer)
         deallocate(state->heap);
@@ -1993,6 +2031,63 @@ static void validate_sprite_material_reference(
 static void static_sprite_component_draw(StaticSpriteState *state, CameraComponentData *active_camera, Actor *active_camera_actor) {
     if (!state)
         return;
+
+    // Camera render-texture source: draw from another camera's render target.
+    if (state->camera_texture_source_id[0] != '\0') {
+        Actor *src_actor = find_actor_by_id(state->camera_texture_source_id);
+        if (src_actor) {
+            CameraComponentData *src_cam = ActorFindBuiltinComponentDataAs(src_actor, "Camera", CameraComponentData);
+            if (src_cam && src_cam->render_to_texture && src_cam->render_target_initialized) {
+                Texture2D cam_tex = src_cam->render_target.texture;
+
+                Rectangle source = {
+                    0.0f,
+                    0.0f,
+                    (float)cam_tex.width,
+                    -(float)cam_tex.height, // raylib RenderTexture2D is Y-flipped
+                };
+
+                float actor_x = state->actor ? state->actor->transform.position.x : 0.0f;
+                float actor_y = state->actor ? state->actor->transform.position.y : 0.0f;
+                float actor_scale_x = state->actor ? state->actor->transform.scale.x : 1.0f;
+                float actor_scale_y = state->actor ? state->actor->transform.scale.y : 1.0f;
+
+                float destination_x = actor_x + state->position.x;
+                float destination_y = actor_y + state->position.y;
+                float destination_width = (float)cam_tex.width * state->scale * actor_scale_x;
+                float destination_height = (float)cam_tex.height * state->scale * actor_scale_y;
+
+                if (active_camera && active_camera_actor) {
+                    float zoom = 1.0f;
+                    if (active_camera->camera.fovy > 0.001f)
+                        zoom = 60.0f / active_camera->camera.fovy;
+
+                    const float camera_x = active_camera_actor->transform.position.x;
+                    const float camera_y = active_camera_actor->transform.position.y;
+
+                    destination_x = (destination_x - camera_x) * zoom + ((float)GetScreenWidth() * 0.5f);
+                    destination_y = (destination_y - camera_y) * zoom + ((float)GetScreenHeight() * 0.5f);
+                    destination_width *= zoom;
+                    destination_height *= zoom;
+                }
+
+                Rectangle destination = {destination_x, destination_y, destination_width, destination_height};
+                Vector2 anchor = {
+                    state->anchor.offset.x * state->scale * actor_scale_x,
+                    state->anchor.offset.y * state->scale * actor_scale_y,
+                };
+                if (state->anchor.center) {
+                    anchor.x = destination_width * 0.5f;
+                    anchor.y = destination_height * 0.5f;
+                }
+
+                float actor_rotation_z = state->actor ? state->actor->transform.rotation_euler.z : 0.0f;
+                DrawTexturePro(cam_tex, source, destination, anchor, state->rotation + actor_rotation_z, apply_global_light_to_color(state->tint));
+                return;
+            }
+        }
+        return; // source camera not ready yet; draw nothing
+    }
 
     validate_sprite_material_reference(
         "StaticSprite",
@@ -3796,9 +3891,39 @@ static void frame_update(void) {
             continue;
 
         camera_component_sync(actor, camera_state);
-        if (!runtime_state.active_camera && camera_state->active) {
-            runtime_state.active_camera = camera_state;
-            runtime_state.active_camera_actor = actor;
+
+        if (camera_state->active && camera_state->render_to_texture) {
+            int rt_w = camera_state->render_texture_width > 0 ? camera_state->render_texture_width : GetScreenWidth();
+            int rt_h = camera_state->render_texture_height > 0 ? camera_state->render_texture_height : GetScreenHeight();
+            if (!camera_state->render_target_initialized ||
+                camera_state->render_target.texture.width != rt_w ||
+                camera_state->render_target.texture.height != rt_h) {
+                if (camera_state->render_target_initialized)
+                    UnloadRenderTexture(camera_state->render_target);
+                camera_state->render_target = LoadRenderTexture(rt_w, rt_h);
+                if (camera_state->render_target.id == 0) {
+                    camera_state->render_target = (RenderTexture2D){0};
+                    camera_state->render_target_initialized = False;
+                } else {
+                    camera_state->render_target_initialized = True;
+                }
+            }
+        }
+
+        if (camera_state->active && !camera_state->render_to_texture) {
+            // Prefer the explicitly designated main camera.
+            if (runtime_state.main_camera_actor_id[0] != '\0') {
+                if (strcmp(actor->id, runtime_state.main_camera_actor_id) == 0) {
+                    runtime_state.active_camera = camera_state;
+                    runtime_state.active_camera_actor = actor;
+                }
+            } else if (!runtime_state.active_camera) {
+                // Fallback: first active non-render-to-texture camera wins.
+                runtime_state.active_camera = camera_state;
+                runtime_state.active_camera_actor = actor;
+                if (snprintf(runtime_state.main_camera_actor_id, sizeof(runtime_state.main_camera_actor_id), "%s", actor->id) >= (int)sizeof(runtime_state.main_camera_actor_id))
+                    runtime_state.main_camera_actor_id[0] = '\0';
+            }
         }
     }
 
@@ -3842,6 +3967,39 @@ static void frame_update(void) {
     boolean use_postfx = runtime_postfx_stack.enabled && runtime_postfx_stack.pass_count > 0;
     if (use_postfx && postfx_ensure_targets(screen_width, screen_height) != Ok)
         use_postfx = False;
+
+    // Render secondary (render-to-texture) cameras into their render targets first.
+    for (usize actor_index = 0; actor_index < runtime_state.actor_registry.actor_count; ++actor_index) {
+        Actor *rt_cam_actor = &runtime_state.actor_registry.actors[actor_index];
+        if (!rt_cam_actor->enabled)
+            continue;
+
+        CameraComponentData *rt_cam = ActorFindBuiltinComponentDataAs(rt_cam_actor, "Camera", CameraComponentData);
+        if (!rt_cam || !rt_cam->active || !rt_cam->render_to_texture || !rt_cam->render_target_initialized)
+            continue;
+
+        BeginTextureMode(rt_cam->render_target);
+        ClearBackground(BLANK);
+
+        for (usize index = 0; index < draw_order_index; ++index) {
+            Actor *actor = draw_order[index];
+            for (usize component_index = 0; component_index < actor->component_count; ++component_index) {
+                ActorComponent *component = &actor->components[component_index];
+
+                if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticSprite") == 0)
+                    static_sprite_component_draw((StaticSpriteState *)component->data, rt_cam, rt_cam_actor);
+
+                if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "StaticColor") == 0)
+                    static_color_component_draw((StaticColorState *)component->data, rt_cam, rt_cam_actor);
+
+                if (component->descriptor.kind == ComponentBuiltin && component->descriptor.name && strcmp(component->descriptor.name, "AnimatedSprite") == 0)
+                    animated_sprite_component_draw((AnimatedSpriteState *)component->data, rt_cam, rt_cam_actor);
+            }
+        }
+        draw_point_light_overlays(rt_cam, rt_cam_actor);
+
+        EndTextureMode();
+    }
 
     if (use_postfx) {
         BeginTextureMode(runtime_postfx_scene_target);
@@ -4650,6 +4808,18 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         if (active.type == TOML_BOOLEAN)
             camera_state->active = active.u.boolean ? True : False;
 
+        toml_datum_t render_texture = toml_get(camera_component_table, "render_texture");
+        if (render_texture.type == TOML_BOOLEAN)
+            camera_state->render_to_texture = render_texture.u.boolean ? True : False;
+
+        toml_datum_t rt_width = toml_get(camera_component_table, "render_texture_width");
+        if (rt_width.type == TOML_INT64 && rt_width.u.int64 > 0)
+            camera_state->render_texture_width = (int)rt_width.u.int64;
+
+        toml_datum_t rt_height = toml_get(camera_component_table, "render_texture_height");
+        if (rt_height.type == TOML_INT64 && rt_height.u.int64 > 0)
+            camera_state->render_texture_height = (int)rt_height.u.int64;
+
         ComponentDescriptor descriptor = {
             .name = "Camera",
             .kind = ComponentBuiltin,
@@ -5129,8 +5299,9 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
     }
 
     toml_datum_t static_sprite_table = {0};
-    const char *static_sprite_texture = find_static_sprite_texture(actor_table, &static_sprite_table);
-    if (static_sprite_texture) {
+    const char *static_sprite_camera_texture = Null;
+    const char *static_sprite_texture = find_static_sprite_texture(actor_table, &static_sprite_table, &static_sprite_camera_texture);
+    if (static_sprite_texture || static_sprite_camera_texture) {
         Heap sprite_heap = allocate(1, sizeof(StaticSpriteState));
         StaticSpriteState *sprite_state = (StaticSpriteState *)sprite_heap.pointer;
         if (!sprite_state) {
@@ -5150,10 +5321,20 @@ static result instantiate_actor_from_table(const char *actor_id, toml_datum_t ac
         sprite_state->rotation = 0.0f;
         sprite_state->tint = WHITE;
 
-        if (snprintf(sprite_state->texture_path, sizeof(sprite_state->texture_path), "%s", static_sprite_texture) >= (int)sizeof(sprite_state->texture_path)) {
-            static_sprite_component_dispose(sprite_state);
-            log_err("Static sprite texture path is too long for actor '%s'", actor_id);
-            return Err;
+        if (static_sprite_texture) {
+            if (snprintf(sprite_state->texture_path, sizeof(sprite_state->texture_path), "%s", static_sprite_texture) >= (int)sizeof(sprite_state->texture_path)) {
+                static_sprite_component_dispose(sprite_state);
+                log_err("Static sprite texture path is too long for actor '%s'", actor_id);
+                return Err;
+            }
+        }
+
+        if (static_sprite_camera_texture) {
+            if (snprintf(sprite_state->camera_texture_source_id, sizeof(sprite_state->camera_texture_source_id), "%s", static_sprite_camera_texture) >= (int)sizeof(sprite_state->camera_texture_source_id)) {
+                static_sprite_component_dispose(sprite_state);
+                log_err("Static sprite camera_texture actor id is too long for actor '%s'", actor_id);
+                return Err;
+            }
         }
 
         toml_datum_t static_material = toml_get(static_sprite_table, "material");
@@ -5392,6 +5573,7 @@ static result load_scene_runtime(const char *scene_path) {
     script_runtime_bind_registry(&runtime_state.script_runtime, &runtime_state.actor_registry);
     runtime_state.active_camera = Null;
     runtime_state.active_camera_actor = Null;
+    runtime_state.main_camera_actor_id[0] = '\0';
 
     if (load_autoload_actors(autoload_toml.toptab) != Ok)
         goto fail;
@@ -6029,4 +6211,31 @@ result runtime_material_get_property(const char *material_alias, const char *pro
     }
 
     return Err;
+}
+
+result runtime_camera_set_main(const char *actor_id) {
+    RuntimeGuardActiveErr();
+
+    if (!actor_id || actor_id[0] == '\0')
+        return Err;
+
+    Actor *actor = find_actor_by_id(actor_id);
+    if (!actor)
+        return Err;
+
+    CameraComponentData *camera = ActorFindBuiltinComponentDataAs(actor, "Camera", CameraComponentData);
+    if (!camera)
+        return Err;
+
+    if (snprintf(runtime_state.main_camera_actor_id, sizeof(runtime_state.main_camera_actor_id), "%s", actor_id) >= (int)sizeof(runtime_state.main_camera_actor_id))
+        return Err;
+
+    // Promote this camera to main: disable render_to_texture so it renders to screen.
+    camera->render_to_texture = False;
+    camera->active = True;
+
+    runtime_state.active_camera = camera;
+    runtime_state.active_camera_actor = actor;
+
+    return Ok;
 }

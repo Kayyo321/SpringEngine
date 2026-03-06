@@ -10,6 +10,11 @@ typedef struct {
     float near_clip;
     float far_clip;
     boolean active;
+    boolean render_to_texture;
+    int render_texture_width;
+    int render_texture_height;
+    RenderTexture2D render_target;
+    boolean render_target_initialized;
     Heap heap;
 } CameraComponentData;
 

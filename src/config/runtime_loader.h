@@ -25,5 +25,6 @@ const char *runtime_ui_get_document_id_at(usize index);
 boolean runtime_material_alias_exists(const char *material_alias);
 result runtime_material_set_property(const char *material_alias, const char *property_name, float value);
 result runtime_material_get_property(const char *material_alias, const char *property_name, float *out_value);
+result runtime_camera_set_main(const char *actor_id);
 
 #endif // RUNTIME_LOADER_H

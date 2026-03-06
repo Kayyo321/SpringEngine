@@ -117,6 +117,7 @@ typedef struct {
     char texture_path[4096];
     char resolved_texture_path[4096];
     char material_id[64];
+    char camera_texture_source_id[128];
     Actor *actor;
     Vector2 position;
     SpriteAnchor anchor;

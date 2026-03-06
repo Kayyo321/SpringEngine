@@ -38,6 +38,7 @@ typedef struct {
     ScriptRuntime script_runtime;
     CameraComponentData *active_camera;
     Actor *active_camera_actor;
+    char main_camera_actor_id[RuntimeMaxRuntimeActorIdLength];
     boolean dj_enabled;
     boolean active;
 #ifdef Debug

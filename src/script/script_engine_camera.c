@@ -332,6 +332,14 @@ static int lua_camera_lerp_towards_actor(lua_State *lua_state) {
     return 0;
 }
 
+static int lua_camera_set_main(lua_State *lua_state) {
+    const char *actor_id = luaL_checkstring(lua_state, 1);
+    if (!actor_id || actor_id[0] == '\0')
+        return 0;
+    runtime_camera_set_main(actor_id);
+    return 0;
+}
+
 static const luaL_Reg camera_methods[] = {
     {"set_position", lua_camera_set_position},
     {"get_position", lua_camera_get_position},
@@ -350,6 +358,7 @@ static const luaL_Reg camera_methods[] = {
     {"get_clipping", lua_camera_get_clipping},
     {"look_at_actor", lua_camera_look_at_actor},
     {"lerp_towards_actor", lua_camera_lerp_towards_actor},
+    {"set_main", lua_camera_set_main},
     {NULL, NULL},
 };
 

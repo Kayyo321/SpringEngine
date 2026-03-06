@@ -2418,11 +2418,41 @@ static int lua_actor_destroy(lua_State *lua_state) {
     return 1;
 }
 
+static int lua_actor_find_by_tag(lua_State *lua_state) {
+    const char *tag = luaL_checkstring(lua_state, 1);
+    if (!tag || tag[0] == '\0') {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    ScriptRuntime *runtime = lua_runtime_instance(lua_state);
+    if (!runtime || !runtime->actor_registry) {
+        lua_pushnil(lua_state);
+        return 1;
+    }
+
+    for (usize i = 0; i < runtime->actor_registry->actor_count; ++i) {
+        Actor *actor = &runtime->actor_registry->actors[i];
+        if (!actor->enabled)
+            continue;
+        for (usize t = 0; t < actor->tag_count; ++t) {
+            if (strcmp(actor->tags[t], tag) == 0) {
+                lua_pushstring(lua_state, actor->id);
+                return 1;
+            }
+        }
+    }
+
+    lua_pushnil(lua_state);
+    return 1;
+}
+
 static const luaL_Reg actor_methods[] = {
     {"get_position", lua_actor_get_position},
     {"get_anchor_position", lua_actor_get_anchor_position},
     {"get_component", lua_actor_get_component},
     {"destroy", lua_actor_destroy},
+    {"find_by_tag", lua_actor_find_by_tag},
     {NULL, NULL},
 };
 
