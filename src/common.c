@@ -366,9 +366,6 @@ static result log_message(const char *fmt, va_list args, int log_flags) {
     double_puts(msg_buffer);
     double_puts("\n");
 
-    error_cnt += (log_flags & LogFlagError);
-    warn_cnt += (log_flags & LogFlagWarn);
-
     return Ok;
 #undef double_puts
 }
